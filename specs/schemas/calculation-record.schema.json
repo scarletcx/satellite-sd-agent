@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://satellite.local/schemas/calculation-record.schema.json",
+  "title": "CalculationRecord",
+  "description": "一次确定性计算的完整记录（只追加、不可修改）。对应 docs/03-data-model.md §3.5",
+  "type": "object",
+  "required": ["id", "mission_id", "tool", "formula_version", "inputs", "outputs", "code_commit", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^calc-[0-9]{8}-[0-9]{4}$", "example": "calc-20261005-0007" },
+    "mission_id": { "type": "string", "pattern": "^t-[0-9]{8}-[0-9]{3}$" },
+    "tool": {
+      "type": "string",
+      "enum": ["calc.mass_budget", "calc.power_budget", "calc.data_budget", "calc.link_budget",
+               "calc.orbit", "calc.eps", "calc.adcs"]
+    },
+    "formula_version": { "type": "string", "example": "eps-v1", "description": "公式版本（与 docs/06 对应）" },
+    "inputs": { "type": "object", "additionalProperties": true, "description": "完整输入" },
+    "outputs": { "type": "object", "additionalProperties": true, "description": "完整输出" },
+    "units_map": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "输入 / 输出字段 → 单位映射"
+    },
+    "code_commit": { "type": "string", "description": "代码版本（可复现）" },
+    "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "examples": [
+    {
+      "id": "calc-20261005-0007",
+      "mission_id": "t-20261005-001",
+      "tool": "calc.eps",
+      "formula_version": "eps-v1",
+      "inputs": { "power.p_eol_w": 210.5, "cell_efficiency": 0.3, "sun_angle_deg": 0 },
+      "outputs": { "power.sa.area": 4.8 },
+      "units_map": { "power.p_eol_w": "W", "power.sa.area": "m2" },
+      "code_commit": "a1b2c3d",
+      "duration_ms": 12,
+      "created_at": "2026-10-05T09:03:00Z"
+    }
+  ]
+}

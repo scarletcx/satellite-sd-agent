@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://satellite.local/schemas/tools/doc-render.schema.json",
+  "title": "doc.render 工具契约",
+  "description": "Word 渲染（docxtpl）。占位符规则与章节规格见 docs/10。请求 = #/$defs/request，响应 = #/$defs/response。",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": ["mission_id", "template_version", "ir_snapshot_path", "narrative", "document_version"],
+      "additionalProperties": false,
+      "properties": {
+        "mission_id": { "type": "string", "pattern": "^t-[0-9]{8}-[0-9]{3}$" },
+        "template_version": { "type": "string", "example": "design-report-v1" },
+        "ir_snapshot_path": { "type": "string", "description": "已验证参数快照路径（artifacts/<task_id>/parameters-snapshot.json）" },
+        "narrative": {
+          "type": "object",
+          "description": "章节文字（占位符化，禁止裸数字），key = section_id",
+          "additionalProperties": { "type": "string" },
+          "minProperties": 1
+        },
+        "document_version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["docx_path", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "docx_path": { "type": "string" },
+        "version": { "type": "integer", "minimum": 1 },
+        "duration_ms": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

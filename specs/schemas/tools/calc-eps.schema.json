@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://satellite.local/schemas/tools/calc-eps.schema.json",
+  "title": "calc.eps 工具契约",
+  "description": "太阳翼 / 电池尺寸计算，对应 docs/06 §2 C6。请求 = #/$defs/request，响应 = #/$defs/response。",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": ["p_eol_w", "life_years", "degradation_per_year", "cell_efficiency", "packing_factor"],
+      "additionalProperties": false,
+      "properties": {
+        "mission_id": { "type": "string", "pattern": "^t-[0-9]{8}-[0-9]{3}$" },
+        "p_eol_w": { "type": "number", "exclusiveMinimum": 0, "description": "寿命末期所需功率（含充电）" },
+        "life_years": { "type": "number", "exclusiveMinimum": 0, "maximum": 20 },
+        "degradation_per_year": { "type": "number", "exclusiveMinimum": 0, "maximum": 0.2, "description": "年衰减率（deg）" },
+        "cell_efficiency": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "packing_factor": { "type": "number", "exclusiveMinimum": 0, "maximum": 1, "description": "布片系数" },
+        "sun_angle_cos": { "type": "number", "exclusiveMinimum": 0, "maximum": 1, "default": 0.9 },
+        "margin_pct": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.1 },
+        "battery": {
+          "type": ["object", "null"],
+          "description": "可选：给出阴影期能量则同时计算电池容量",
+          "additionalProperties": false,
+          "properties": {
+            "e_ecl_wh": { "type": "number", "minimum": 0 },
+            "dod": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+            "eta_out": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+          },
+          "required": ["e_ecl_wh", "dod", "eta_out"]
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["sa_area_m2", "p_bol_w"],
+      "additionalProperties": false,
+      "properties": {
+        "sa_area_m2": { "type": "number", "description": "太阳翼面积（m²）" },
+        "p_bol_w": { "type": "number", "description": "寿命初期功率（W）" },
+        "battery_capacity_wh": { "type": ["number", "null"] },
+        "calculation_record": { "$ref": "../calculation-record.schema.json" }
+      }
+    }
+  },
+  "examples": [
+    {
+      "request": {
+        "mission_id": "t-20261005-001",
+        "p_eol_w": 210.5,
+        "life_years": 3,
+        "degradation_per_year": 0.02,
+        "cell_efficiency": 0.3,
+        "packing_factor": 0.85,
+        "battery": { "e_ecl_wh": 95, "dod": 0.3, "eta_out": 0.9 }
+      }
+    }
+  ]
+}

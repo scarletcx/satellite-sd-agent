@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://satellite.local/schemas/tools/calc-budget.schema.json",
+  "title": "calc.*_budget 工具契约",
+  "description": "四个预算工具共用（tool 名区分：calc.mass_budget / calc.power_budget / calc.data_budget / calc.link_budget）。公式定义见 docs/06 §2 C1~C4。请求 = #/$defs/request，响应 = #/$defs/response。",
+  "$defs": {
+    "request": {
+      "oneOf": [
+        { "allOf": [ { "$ref": "#/$defs/envelope" }, { "properties": { "tool": { "const": "calc.mass_budget" }, "input": { "$ref": "#/$defs/massInput" } }, "required": ["input"] } ] },
+        { "allOf": [ { "$ref": "#/$defs/envelope" }, { "properties": { "tool": { "const": "calc.power_budget" }, "input": { "$ref": "#/$defs/powerInput" } }, "required": ["input"] } ] },
+        { "allOf": [ { "$ref": "#/$defs/envelope" }, { "properties": { "tool": { "const": "calc.data_budget" }, "input": { "$ref": "#/$defs/dataInput" } }, "required": ["input"] } ] },
+        { "allOf": [ { "$ref": "#/$defs/envelope" }, { "properties": { "tool": { "const": "calc.link_budget" }, "input": { "$ref": "#/$defs/linkInput" } }, "required": ["input"] } ] }
+      ]
+    },
+    "envelope": {
+      "type": "object",
+      "required": ["tool", "mission_id"],
+      "additionalProperties": false,
+      "properties": {
+        "tool": { "type": "string", "enum": ["calc.mass_budget", "calc.power_budget", "calc.data_budget", "calc.link_budget"] },
+        "mission_id": { "type": "string", "pattern": "^t-[0-9]{8}-[0-9]{3}$" },
+        "input": { "type": "object" }
+      }
+    },
+    "massInput": {
+      "type": "object",
+      "required": ["items", "propellant_kg", "margin_policy"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "mass_kg", "source_ref"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "mass_kg": { "type": "number", "exclusiveMinimum": 0 },
+              "margin": { "type": ["number", "null"] },
+              "source_ref": { "type": "string" }
+            }
+          }
+        },
+        "propellant_kg": { "type": "number", "minimum": 0 },
+        "margin_policy": {
+          "type": "object",
+          "required": ["phase", "pct"],
+          "additionalProperties": false,
+          "properties": {
+            "phase": { "type": "string", "enum": ["方案", "初样"] },
+            "pct": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+    "powerInput": {
+      "type": "object",
+      "required": ["loads", "orbit", "battery"],
+      "additionalProperties": false,
+      "properties": {
+        "loads": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "phase", "power_w", "duty_pct"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "phase": { "type": "string", "enum": ["sun", "ecl", "both"] },
+              "power_w": { "type": "number", "minimum": 0 },
+              "duty_pct": { "type": "number", "minimum": 0, "maximum": 100 }
+            }
+          }
+        },
+        "orbit": {
+          "type": "object",
+          "required": ["T_orbit_min", "T_ecl_min"],
+          "additionalProperties": false,
+          "properties": {
+            "T_orbit_min": { "type": "number", "exclusiveMinimum": 0 },
+            "T_ecl_min": { "type": "number", "minimum": 0 }
+          }
+        },
+        "battery": {
+          "type": "object",
+          "required": ["dod", "eta_out"],
+          "additionalProperties": false,
+          "properties": {
+            "dod": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+            "eta_out": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+    "dataInput": {
+      "type": "object",
+      "required": ["payload", "downlink", "orbits_per_day"],
+      "additionalProperties": false,
+      "properties": {
+        "payload": {
+          "type": "object",
+          "required": ["rate_mbps", "imaging_min_per_orbit", "compression_ratio"],
+          "additionalProperties": false,
+          "properties": {
+            "rate_mbps": { "type": "number", "exclusiveMinimum": 0 },
+            "imaging_min_per_orbit": { "type": "number", "minimum": 0 },
+            "compression_ratio": { "type": "number", "minimum": 1 }
+          }
+        },
+        "downlink": {
+          "type": "object",
+          "required": ["rate_mbps", "window_min_per_day"],
+          "additionalProperties": false,
+          "properties": {
+            "rate_mbps": { "type": "number", "exclusiveMinimum": 0 },
+            "window_min_per_day": { "type": "number", "minimum": 0 }
+          }
+        },
+        "orbits_per_day": { "type": "number", "exclusiveMinimum": 0, "description": "来自 calc.orbit 输出" },
+        "storage_cycles": { "type": "integer", "minimum": 1, "default": 2 }
+      }
+    },
+    "linkInput": {
+      "type": "object",
+      "required": ["freq_ghz", "slant_km", "eirp_dbw", "gt_db_per_k", "data_rate_kbps", "required_ebn0_db"],
+      "additionalProperties": false,
+      "properties": {
+        "freq_ghz": { "type": "number", "exclusiveMinimum": 0 },
+        "slant_km": { "type": "number", "exclusiveMinimum": 0 },
+        "eirp_dbw": { "type": "number" },
+        "gt_db_per_k": { "type": "number" },
+        "data_rate_kbps": { "type": "number", "exclusiveMinimum": 0 },
+        "required_ebn0_db": { "type": "number", "description": "调制编码门限；缺失即拒绝，不得默认放行" },
+        "rain_margin_db": { "type": "number", "default": 0 },
+        "other_losses_db": { "type": "number", "default": 0 },
+        "min_margin_db": { "type": "number", "default": 3 }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["budget", "calculation_record"],
+      "additionalProperties": false,
+      "properties": {
+        "budget": { "$ref": "../budget.schema.json" },
+        "calculation_record": { "$ref": "../calculation-record.schema.json" }
+      }
+    }
+  },
+  "examples": [
+    {
+      "request": {
+        "tool": "calc.mass_budget",
+        "mission_id": "t-20261005-001",
+        "input": {
+          "items": [
+            { "name": "有效载荷", "mass_kg": 18.0, "margin": 0.1, "source_ref": "calc-20261005-0003" }
+          ],
+          "propellant_kg": 4.0,
+          "margin_policy": { "phase": "方案", "pct": 0.2 }
+        }
+      }
+    }
+  ]
+}

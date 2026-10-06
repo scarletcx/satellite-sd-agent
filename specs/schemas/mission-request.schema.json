@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://satellite.local/schemas/mission-request.schema.json",
+  "title": "MissionRequest",
+  "description": "任务书（系统输入）。对应 docs/03-data-model.md §3.1",
+  "type": "object",
+  "required": ["goal"],
+  "additionalProperties": false,
+  "properties": {
+    "goal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "任务目标（一句话或详细描述）"
+    },
+    "constraints": {
+      "type": "object",
+      "description": "结构化约束（可留空，由 S1 澄清补齐）",
+      "additionalProperties": false,
+      "properties": {
+        "orbit_type": { "type": "string", "enum": ["SSO", "LEO", "GEO", "custom"] },
+        "altitude_km": { "type": "number", "minimum": 200, "maximum": 36000 },
+        "inclination_deg": { "type": "number", "minimum": 0, "maximum": 180 },
+        "lifetime_years": { "type": "number", "minimum": 0.5, "maximum": 20 },
+        "payload": { "type": "string", "maxLength": 500, "description": "载荷参数描述" },
+        "data_requirements": { "type": "string", "maxLength": 500, "description": "成像 / 通信任务需求" },
+        "ttc_conditions": { "type": "string", "maxLength": 500, "description": "测控条件" },
+        "mass_limit_kg": { "type": "number", "exclusiveMinimum": 0, "description": "整星质量上限" },
+        "power_limit_w": { "type": "number", "exclusiveMinimum": 0, "description": "整星功耗上限" },
+        "notes": { "type": "string", "maxLength": 1000 }
+      }
+    },
+    "clarifications": {
+      "type": "array",
+      "maxItems": 3,
+      "description": "S1 澄清记录（≤3 轮）",
+      "items": {
+        "type": "object",
+        "required": ["question", "asked_at"],
+        "additionalProperties": false,
+        "properties": {
+          "question": { "type": "string" },
+          "answer": { "type": "string" },
+          "asked_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "language": { "type": "string", "enum": ["zh"], "default": "zh" },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "examples": [
+    {
+      "goal": "设计一颗 500km SSO 光学遥感小卫星",
+      "constraints": {
+        "orbit_type": "SSO",
+        "altitude_km": 500,
+        "inclination_deg": 97.4,
+        "lifetime_years": 3,
+        "payload": "多光谱相机，地面分辨率 5m，幅宽 60km",
+        "data_requirements": "每日成像 10 圈",
+        "ttc_conditions": "S 频段测控，国内站",
+        "mass_limit_kg": 80,
+        "notes": "尽量采用货架产品"
+      },
+      "clarifications": [],
+      "language": "zh",
+      "created_at": "2026-10-05T09:00:00Z"
+    }
+  ]
+}

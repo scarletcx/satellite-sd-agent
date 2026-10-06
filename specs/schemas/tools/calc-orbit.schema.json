@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://satellite.local/schemas/tools/calc-orbit.schema.json",
+  "title": "calc.orbit 工具契约",
+  "description": "轨道与覆盖（二体 + J2 长期项 + 几何可见性），对应 docs/06 §2 C5。请求 = #/$defs/request，响应 = #/$defs/response。",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": ["orbit", "station"],
+      "additionalProperties": false,
+      "properties": {
+        "mission_id": { "type": "string", "pattern": "^t-[0-9]{8}-[0-9]{3}$" },
+        "orbit": {
+          "type": "object",
+          "required": ["alt_km", "inc_deg"],
+          "additionalProperties": false,
+          "properties": {
+            "alt_km": { "type": "number", "minimum": 200, "maximum": 36000 },
+            "inc_deg": { "type": "number", "minimum": 0, "maximum": 180 },
+            "e": { "type": "number", "minimum": 0, "maximum": 0.25, "default": 0 }
+          }
+        },
+        "station": {
+          "type": "object",
+          "required": ["lat", "lon"],
+          "additionalProperties": false,
+          "properties": {
+            "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+            "lon": { "type": "number", "minimum": -180, "maximum": 180 },
+            "min_elevation_deg": { "type": "number", "minimum": 0, "maximum": 90, "default": 5 }
+          }
+        },
+        "sample_step_s": { "type": "integer", "minimum": 5, "maximum": 120, "default": 30 }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["period_min", "sso_ok", "windows_per_day", "revisit_avg_h", "max_gap_h"],
+      "additionalProperties": false,
+      "properties": {
+        "period_min": { "type": "number", "description": "轨道周期（分钟）" },
+        "sso_ok": { "type": "boolean", "description": "SSO 校验：Ω̇ ≈ +0.9856°/day" },
+        "windows_per_day": { "type": "number" },
+        "revisit_avg_h": { "type": "number" },
+        "max_gap_h": { "type": "number" },
+        "windows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["start", "end"],
+            "additionalProperties": false,
+            "properties": {
+              "start": { "type": "string", "format": "date-time" },
+              "end": { "type": "string", "format": "date-time" }
+            }
+          }
+        },
+        "cross_validation": {
+          "type": ["object", "null"],
+          "description": "与开源库（brahe / tudatpy / skyfield）对拍结果（V2 独立重算，ADR-0004）",
+          "additionalProperties": false,
+          "properties": {
+            "library": { "type": "string" },
+            "period_diff_pct": { "type": "number" },
+            "windows_diff_pct": { "type": "number" }
+          }
+        },
+        "calculation_record": { "$ref": "../calculation-record.schema.json" }
+      }
+    }
+  }
+}

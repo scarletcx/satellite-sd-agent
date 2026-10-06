@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://satellite.local/schemas/assumption.schema.json",
+  "title": "Assumption",
+  "description": "假设台账条目（一等公民，可被人工确认或推翻）。对应 docs/03-data-model.md §3.7",
+  "type": "object",
+  "required": ["id", "mission_id", "content", "basis", "related_params", "status", "registered_by"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "example": "asm-0003" },
+    "mission_id": { "type": "string", "pattern": "^t-[0-9]{8}-[0-9]{3}$" },
+    "content": { "type": "string", "description": "假设内容（如「方案期质量余量取 20%」）" },
+    "basis": { "type": "string", "description": "依据（文献 / 经验 / 约定）" },
+    "related_params": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "影响的参数 id"
+    },
+    "status": { "type": "string", "enum": ["open", "confirmed", "rejected"] },
+    "registered_by": { "type": "string" },
+    "confirmed_by": { "type": ["string", "null"] },
+    "confirmed_at": { "type": ["string", "null"], "format": "date-time" }
+  },
+  "examples": [
+    {
+      "id": "asm-0003",
+      "mission_id": "t-20261005-001",
+      "content": "方案期质量余量取 20%",
+      "basis": "SMAD 余量实践 + 项目惯例",
+      "related_params": ["mass.margin_pct", "mass.total_with_margin"],
+      "status": "confirmed",
+      "registered_by": "system:S4",
+      "confirmed_by": "engineer@example.com",
+      "confirmed_at": "2026-10-05T09:05:00Z"
+    }
+  ]
+}

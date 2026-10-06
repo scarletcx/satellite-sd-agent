@@ -1,0 +1,46 @@
+body {
+  margin: 0;
+  background: #f5f5f5;
+}
+
+.section-card {
+  margin-bottom: 16px;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+/* Word 在线预览（docx → HTML 渲染容器） */
+.doc-preview {
+  max-height: 560px;
+  overflow: auto;
+  padding: 16px 20px;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  background: #fff;
+  line-height: 1.7;
+}
+
+.doc-preview table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+}
+
+.doc-preview th,
+.doc-preview td {
+  border: 1px solid #d9d9d9;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.doc-preview h1 {
+  font-size: 20px;
+}
+
+.doc-preview h2 {
+  font-size: 16px;
+  margin: 12px 0 6px;
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://satellite.local/schemas/tools/calc-adcs.schema.json",
+  "title": "calc.adcs 工具契约",
+  "description": "ADCS 能力粗算（扰动力矩 / 需求动量），对应 docs/06 §2 C7。仅能力级核对，非详细设计。请求 = #/$defs/request，响应 = #/$defs/response。",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": ["inertia_kgm2", "alt_km", "cross_area_m2", "residual_dipole_am2", "slew_angle_deg", "slew_time_s"],
+      "additionalProperties": false,
+      "properties": {
+        "mission_id": { "type": "string", "pattern": "^t-[0-9]{8}-[0-9]{3}$" },
+        "inertia_kgm2": { "type": "number", "exclusiveMinimum": 0, "description": "整星转动惯量（取最大轴）" },
+        "alt_km": { "type": "number", "minimum": 200, "maximum": 36000 },
+        "cross_area_m2": { "type": "number", "exclusiveMinimum": 0 },
+        "residual_dipole_am2": { "type": "number", "minimum": 0, "description": "剩磁偶极矩" },
+        "slew_angle_deg": { "type": "number", "exclusiveMinimum": 0, "maximum": 180 },
+        "slew_time_s": { "type": "number", "exclusiveMinimum": 0, "description": "期望机动时间" }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["torque_required_nm", "momentum_nms"],
+      "additionalProperties": false,
+      "properties": {
+        "torque_required_nm": { "type": "number", "description": "需求力矩（含设计裕度）" },
+        "momentum_nms": { "type": "number", "description": "需求动量" },
+        "components": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "gravity_gradient_nm": { "type": "number" },
+            "aero_nm": { "type": "number" },
+            "magnetic_nm": { "type": "number" }
+          }
+        },
+        "calculation_record": { "$ref": "../calculation-record.schema.json" }
+      }
+    }
+  }
+}

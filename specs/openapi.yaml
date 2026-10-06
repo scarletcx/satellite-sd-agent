@@ -1,0 +1,1159 @@
+openapi: 3.0.3
+
+info:
+  title: AI 卫星总体设计助手 API
+  version: 0.4.0
+  description: |
+    由 `docs/07-api.md`（v0.2 细化版）生成，用途：**Apifox / Postman 直接导入进行手动测试**。
+    - 本地 Base URL：`http://127.0.0.1:8000/api/v1`
+    - 认证：`Authorization: Bearer <APP_TOKEN>`（仅 `/healthz` 除外）
+    - 任务异步：创建返回 `202`；进度经 SSE（`GET /missions/{id}/events`）或轮询（`GET /missions/{id}`）
+    - `STUB_LLM=1` 时为桩模式（离线演示 / CI，全部 LLM 调用走录制回放）
+    - 枚举、错误码、SSE 事件全表见 `docs/07-api.md` §1
+
+servers:
+  - url: http://127.0.0.1:8000/api/v1
+    description: 本地开发
+
+tags:
+  - name: Missions
+    description: 设计任务与流程
+  - name: Parameters
+    description: 参数 IR 与人工门禁
+  - name: Artifacts
+    description: 文档与 trace 产物
+  - name: KnowledgeBase
+    description: 语料与检索
+  - name: System
+    description: 健康与运行信息
+
+security:
+  - bearerAuth: []
+
+paths:
+  /missions:
+    post:
+      operationId: createMission
+      tags: [Missions]
+      summary: 创建任务（A1）
+      description: |
+        业务逻辑：① 校验请求体（mission-request schema）→ 400；② 生成 task_id 并落库为 queued；
+        ③ 异步入队编排状态机（S1 起）；④ 立即返回 202。重复提交相同 goal 不去重。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MissionCreateRequest'
+            example:
+              goal: 设计一颗 500km SSO 光学遥感小卫星
+              constraints:
+                orbit_type: SSO
+                altitude_km: 500
+                lifetime_years: 3
+                payload: 多光谱相机，地面分辨率 5m，幅宽 60km
+                data_requirements: 每日成像 10 圈，单圈数据量尽量压缩
+                mass_limit_kg: 80
+      responses:
+        '202':
+          description: 已受理
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MissionCreatedResponse'
+              example:
+                task_id: t-20261005-001
+                status: queued
+                created_at: '2026-10-05T09:00:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    get:
+      operationId: listMissions
+      tags: [Missions]
+      summary: 任务列表（A2）
+      description: 按 created_at 倒序；支持 status 过滤与分页。
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/MissionStatus' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MissionList'
+              example:
+                items:
+                  - task_id: t-20261005-001
+                    goal: 设计一颗 500km SSO 光学遥感小卫星
+                    status: running
+                    current_step: S5
+                    cost_estimate_cny: 1.24
+                    created_at: '2026-10-05T09:00:00Z'
+                    updated_at: '2026-10-05T09:04:10Z'
+                total: 1
+                page: 1
+                page_size: 20
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /missions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/MissionId'
+    get:
+      operationId: getMission
+      tags: [Missions]
+      summary: 任务详情（A3）
+      description: 聚合状态、步骤进度（S1~S10）、成本、文档状态与待处理门禁。
+      responses:
+        '200':
+          description: 详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MissionDetail'
+              example:
+                task_id: t-20261005-001
+                goal: 设计一颗 500km SSO 光学遥感小卫星
+                status: awaiting_gate
+                current_step: null
+                steps:
+                  - { code: S5, name: 预算与计算, status: done, duration_ms: 980 }
+                  - { code: S6, name: 一致性校验, status: done, duration_ms: 210 }
+                cost_estimate_cny: 1.86
+                document: { ready: false }
+                pending_gates:
+                  - gate_id: g-003
+                    type: assumption_confirm
+                    param_id: mass.margin_pct
+                    message: 方案期余量假设 20% 需确认
+                last_error: null
+                corpus_version: corpus-v2026.10.0
+                created_at: '2026-10-05T09:00:00Z'
+                updated_at: '2026-10-05T09:04:10Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /missions/{id}/events:
+    parameters:
+      - $ref: '#/components/parameters/MissionId'
+    get:
+      operationId: streamMissionEvents
+      tags: [Missions]
+      summary: 进度流 SSE（A4）
+      description: |
+        连接即发送 `snapshot`；随后按事件表推送；`done` / `error` 后服务端关闭。
+        断线重连：携带 `Last-Event-ID` 请求头，服务端从该序号后补发。
+        事件类型与 data 结构见 docs/07-api.md §1.6（step / validation / gate / doc / error / done / ping）。
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          required: false
+          schema: { type: string }
+          description: 断线续传的事件序号
+      responses:
+        '200':
+          description: SSE 流
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: |
+                id: 17
+                event: step
+                data: {"step":"S5","name":"预算与计算","status":"running"}
+
+                id: 18
+                event: validation
+                data: {"rule":"V4","status":"block","param_id":"power.sa.area","message":"太阳翼面积与质量预算不一致"}
+
+                id: 19
+                event: gate
+                data: {"gate_id":"g-003","type":"assumption_confirm","param_id":"mass.margin_pct","message":"方案期余量假设 20% 需确认"}
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /missions/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/MissionId'
+    post:
+      operationId: cancelMission
+      tags: [Missions]
+      summary: 取消任务（A5）
+      description: 仅 queued / running / awaiting_gate 可取消；幂等。
+      responses:
+        '200':
+          description: 已取消
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelResponse'
+              example: { task_id: t-20261005-001, status: canceled }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /missions/{id}/parameters:
+    parameters:
+      - $ref: '#/components/parameters/MissionId'
+    get:
+      operationId: listParameters
+      tags: [Parameters]
+      summary: 参数列表（A6）
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ParameterStatus' }
+        - name: module
+          in: query
+          schema: { $ref: '#/components/schemas/Module' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParameterList'
+              example:
+                items:
+                  - id: power.sa.area
+                    name: 太阳翼面积
+                    unit: m2
+                    value: 4.8
+                    status: verified
+                    source_type: calc
+                    margin: 0.1
+                    validation_status: pass
+                    updated_at: '2026-10-05T09:32:00Z'
+                total: 1
+                page: 1
+                page_size: 50
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /missions/{id}/parameters/{pid}:
+    parameters:
+      - $ref: '#/components/parameters/MissionId'
+      - name: pid
+        in: path
+        required: true
+        schema: { type: string }
+        example: power.sa.area
+    get:
+      operationId: getParameter
+      tags: [Parameters]
+      summary: 参数详情（A7）
+      description: 完整参数对象 + provenance 溯源链 + 关联校验结论。
+      responses:
+        '200':
+          description: 详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParameterDetail'
+              example:
+                id: power.sa.area
+                name: 太阳翼面积
+                value: 4.8
+                unit: m2
+                source_type: calc
+                source_ref: calc-20261005-0007
+                margin: 0.1
+                confidence: high
+                status: verified
+                version: 3
+                provenance:
+                  type: calculation
+                  record:
+                    id: calc-20261005-0007
+                    tool: calc.eps
+                    formula_version: v1
+                    inputs: { power.p_eol_w: 210.5, cell_efficiency: 0.3 }
+                    outputs: { power.sa.area: 4.8 }
+                    code_commit: a1b2c3d
+                validations:
+                  - { rule_id: V4, status: pass, created_at: '2026-10-05T09:03:00Z' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /missions/{id}/parameters/{pid}/review:
+    parameters:
+      - $ref: '#/components/parameters/MissionId'
+      - name: pid
+        in: path
+        required: true
+        schema: { type: string }
+        example: mass.margin_pct
+    post:
+      operationId: reviewParameter
+      tags: [Parameters]
+      summary: 参数评审（A8，人工门禁）
+      description: |
+        业务逻辑：① 参数须为 needs_review / proposed（否则 409）；
+        ② accept → verified（可带 edited_value 先更新数值并版本 +1）；reject → rejected（comment 必填）；
+        ③ 写入 review_gates 与 audit_log；④ 自动触发 A9 重校验并推送 SSE。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewRequest'
+            example:
+              action: accept
+              comment: 按工程经验接受 10% 余量
+              reviewer: engineer@example.com
+      responses:
+        '200':
+          description: 评审完成
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewResponse'
+              example:
+                param_id: mass.margin_pct
+                status: verified
+                gate: { gate_id: g-003, action: accept, reviewer: engineer@example.com, ts: '2026-10-05T09:05:00Z' }
+                revalidation: { queued: true, scope: 'param:mass.margin_pct' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /missions/{id}/revalidate:
+    parameters:
+      - $ref: '#/components/parameters/MissionId'
+    post:
+      operationId: revalidateMission
+      tags: [Parameters]
+      summary: 重新校验（A9）
+      description: 重跑 S6（V1~V7）；block 会再次冻结相关参数并推送 SSE。
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevalidateRequest'
+            example: { scope: all }
+      responses:
+        '200':
+          description: 已受理
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevalidateResponse'
+              example:
+                queued: true
+                scope: all
+                summary: { pass: 18, warn: 2, block: 1 }
+                blocking:
+                  - { rule: V4, param_id: power.sa.area, message: 太阳翼面积与质量预算不一致 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /missions/{id}/document:
+    parameters:
+      - $ref: '#/components/parameters/MissionId'
+    get:
+      operationId: downloadDocument
+      tags: [Artifacts]
+      summary: 下载 Word（A10）
+      description: |
+        业务逻辑：① 存在 block 参数 → 409（details.blocking[]）；
+        ② 流程尚未到达渲染 → 409（details.reason=not_generated）；
+        ③ 指定 version 不存在 → 404；④ 返回 docx 二进制。
+      parameters:
+        - name: version
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1 }
+          description: 默认最新版本
+      responses:
+        '200':
+          description: docx 文件
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+              example: attachment; filename="t-20261005-001-design-v1.docx"
+          content:
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 无法导出
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                blocked:
+                  value:
+                    error:
+                      code: DOC_NOT_READY
+                      message: 存在未通过的校验项，禁止导出
+                      details:
+                        blocking:
+                          - { rule: V4, param_id: power.sa.area }
+                      trace_id: req-20261005-abc123
+                notGenerated:
+                  value:
+                    error:
+                      code: DOC_NOT_READY
+                      message: 文档尚未生成
+                      details: { reason: not_generated }
+                      trace_id: req-20261005-abc124
+
+  /missions/{id}/document/preview:
+    parameters:
+      - $ref: '#/components/parameters/MissionId'
+    get:
+      operationId: previewDocument
+      tags: [Artifacts]
+      summary: Word 在线预览（A13）
+      description: docx → HTML（mammoth）；与 A10 相同的门禁 / 存在性检查。
+      parameters:
+        - name: version
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: HTML 预览
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentPreview'
+              example:
+                task_id: t-20261005-001
+                version: 1
+                html: "<h1>卫星整星详细设计方案</h1><table>…</table>"
+                warnings: []
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /missions/{id}/trace:
+    parameters:
+      - $ref: '#/components/parameters/MissionId'
+    get:
+      operationId: exportTrace
+      tags: [Artifacts]
+      summary: 导出 trace（A11）
+      description: jsonl 为文件下载；json 为解析后的数组结构（便于 Apifox 内查看）。
+      parameters:
+        - name: format
+          in: query
+          schema: { type: string, enum: [jsonl, json], default: jsonl }
+      responses:
+        '200':
+          description: trace
+          content:
+            application/x-ndjson:
+              schema: { type: string }
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TraceResponse'
+              example:
+                task_id: t-20261005-001
+                event_count: 42
+                events:
+                  - { step: S5, type: tool, duration_ms: 812, ts: '2026-10-05T09:03:12Z' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /missions/{id}/check-report:
+    parameters:
+      - $ref: '#/components/parameters/MissionId'
+    get:
+      operationId: downloadCheckReport
+      tags: [Artifacts]
+      summary: 下载校验报告（A12）
+      description: 读取 artifacts/<task_id>/check-report.json 回传；未生成 → 404。
+      responses:
+        '200':
+          description: 报告
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckReport'
+              example:
+                task_id: t-20261005-001
+                generated_at: '2026-10-05T09:06:00Z'
+                placeholders_left: 0
+                numbers_checked: 47
+                numbers_traceable: 47
+                citations: 12
+                citation_issues: 0
+                status: pass
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /kb/search:
+    post:
+      operationId: kbSearch
+      tags: [KnowledgeBase]
+      summary: 检索（B1）
+      description: 混合检索（向量 0.7 + 关键词 0.3）→ 元数据过滤 → 返回带引用的结果。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KBSearchRequest'
+            example:
+              query: 小卫星太阳翼面积与功率的典型关系
+              filters: { module: power, is_synthetic: true }
+              top_k: 8
+      responses:
+        '200':
+          description: 检索结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KBSearchResponse'
+              example:
+                results:
+                  - chunk_id: sst-soa-pwr-014-03
+                    doc_id: sst-soa-2026-pwr
+                    title: SST-SOA 电源章节
+                    text: …典型太阳电池阵面积与功率关系…
+                    score: 0.83
+                    citation:
+                      source_url: https://www.nasa.gov/smallsat-institute/sst-soa/
+                      page: 14
+                      module: power
+                      is_synthetic: false
+                took_ms: 186
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /kb/ingest:
+    post:
+      operationId: kbIngest
+      tags: [KnowledgeBase]
+      summary: 语料摄取（B2）
+      description: 存文件 → 解析 → 切分 → embedding → 写 kb_chunks 与 corpus_manifest（同步执行）。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/KBIngestRequest'
+      responses:
+        '201':
+          description: 摄取完成
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KBIngestResponse'
+              example:
+                doc_id: sst-soa-2026-pwr
+                title: SST-SOA 电源章节
+                chunks: 87
+                corpus_version: corpus-v2026.10.1
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /kb/documents:
+    get:
+      operationId: listKbDocuments
+      tags: [KnowledgeBase]
+      summary: 语料列表（B3）
+      description: 按 module / doc_type 过滤，按 fetched_at 倒序分页。
+      parameters:
+        - name: module
+          in: query
+          schema: { $ref: '#/components/schemas/Module' }
+        - name: doc_type
+          in: query
+          schema: { $ref: '#/components/schemas/DocType' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KBDocumentList'
+              example:
+                items:
+                  - doc_id: sst-soa-2026-pwr
+                    title: SST-SOA 电源章节
+                    module: power
+                    doc_type: manual
+                    is_synthetic: false
+                    license: public-nasa
+                    chunks: 87
+                    fetched_at: '2026-10-05T08:40:00Z'
+                total: 1
+                page: 1
+                page_size: 20
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /kb/documents/{doc_id}:
+    parameters:
+      - name: doc_id
+        in: path
+        required: true
+        schema: { type: string }
+        example: sst-soa-2026-pwr
+    delete:
+      operationId: deleteKbDocument
+      tags: [KnowledgeBase]
+      summary: 删除语料（B4）
+      description: 必须 confirm=true；级联删除 kb_chunks；写审计；不可恢复。
+      parameters:
+        - name: confirm
+          in: query
+          required: true
+          schema: { type: boolean, enum: [true] }
+      responses:
+        '200':
+          description: 已删除
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KBDeleteResponse'
+              example: { doc_id: sst-soa-2026-pwr, deleted_chunks: 87, corpus_version: corpus-v2026.10.2 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /kb/stats:
+    get:
+      operationId: kbStats
+      tags: [KnowledgeBase]
+      summary: 语料统计（B5）
+      description: 统计 corpus_manifest 与 kb_chunks 计数，返回当前语料版本。
+      responses:
+        '200':
+          description: 统计
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KBStats'
+              example:
+                documents: 42
+                chunks: 3120
+                corpus_version: corpus-v2026.10.2
+                embedding_model: bge-m3
+                last_ingest_at: '2026-10-05T08:40:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /healthz:
+    get:
+      operationId: healthz
+      tags: [System]
+      summary: 健康检查（C1，无需认证）
+      description: 检查 DB 连通、embedding 模型状态、LLM Key 配置（不发起在线调用）；异常项 → degraded。
+      security: []
+      responses:
+        '200':
+          description: 健康状态（HTTP 200；关键项异常时 status=degraded）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+                checks:
+                  database: ok
+                  embedding: ok
+                  llm:
+                    stub: false
+                    providers: { deepseek: configured, qwen: configured, openai: not_configured, ollama: configured }
+
+  /info:
+    get:
+      operationId: info
+      tags: [System]
+      summary: 运行信息（C2）
+      description: 返回运行配置摘要（不含密钥），供演示环境自检。
+      responses:
+        '200':
+          description: 运行信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InfoResponse'
+              example:
+                app_version: 0.1.0
+                api_version: v1
+                stub_mode: false
+                models:
+                  primary: deepseek-chat
+                  fallback_order: [deepseek, qwen, openai-claude, ollama]
+                corpus_version: corpus-v2026.10.2
+                template_version: design-report-v1
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: APP_TOKEN
+
+  parameters:
+    MissionId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, pattern: '^t-\d{8}-\d{3}$' }
+      example: t-20261005-001
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+
+  responses:
+    BadRequest:
+      description: 入参不符合 JSON Schema
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example:
+            error:
+              code: SCHEMA_INVALID
+              message: constraints.lifetime_years 必须 ≥ 0.5
+              details: { field: constraints.lifetime_years }
+              trace_id: req-20261005-abc123
+    Unauthorized:
+      description: Token 缺失或错误
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example:
+            error: { code: UNAUTHORIZED, message: 无效的访问令牌, details: {}, trace_id: req-20261005-abc124 }
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example:
+            error: { code: MISSION_NOT_FOUND, message: 任务不存在, details: { task_id: t-20261005-999 }, trace_id: req-20261005-abc125 }
+    Conflict:
+      description: 状态冲突（同 409 各错误码：DOC_NOT_READY / STATE_CONFLICT）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example:
+            error: { code: STATE_CONFLICT, message: 当前任务状态不允许该操作, details: { status: succeeded }, trace_id: req-20261005-abc126 }
+    RateLimited:
+      description: 超过请求频率
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example:
+            error: { code: RATE_LIMITED, message: 请求过于频繁，请稍后重试, details: { limit_per_min: 60 }, trace_id: req-20261005-abc127 }
+    ProviderFailed:
+      description: LLM / embedding 供应商全部失败
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example:
+            error: { code: PROVIDER_FAILED, message: 全部模型服务不可用, details: { provider: deepseek }, trace_id: req-20261005-abc128 }
+
+  schemas:
+    # ---------- 通用 ----------
+    Error:
+      type: object
+      required: [code, message, trace_id]
+      properties:
+        code:
+          type: string
+          enum: [SCHEMA_INVALID, UNAUTHORIZED, MISSION_NOT_FOUND, PARAM_NOT_FOUND, DOC_NOT_FOUND,
+                 DOC_NOT_READY, STATE_CONFLICT, RATE_LIMITED, PROVIDER_FAILED, INTERNAL]
+        message: { type: string }
+        details: { type: object, additionalProperties: true }
+        trace_id: { type: string }
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error: { $ref: '#/components/schemas/Error' }
+
+    # ---------- 枚举 ----------
+    MissionStatus:
+      type: string
+      enum: [queued, running, awaiting_gate, succeeded, failed, canceled]
+    StepStatus:
+      type: string
+      enum: [pending, running, done, failed, skipped]
+    ParameterStatus:
+      type: string
+      enum: [proposed, needs_review, verified, rejected]
+    SourceType:
+      type: string
+      enum: [calc, doc, catalog, assumption, human]
+    ValidationStatus:
+      type: string
+      enum: [pass, warn, block]
+    GateType:
+      type: string
+      enum: [assumption_confirm, discrepancy_resolve, final_review]
+    GateAction:
+      type: string
+      enum: [accept, reject]
+    BudgetType:
+      type: string
+      enum: [mass, power, data, link]
+    DocType:
+      type: string
+      enum: [standard, manual, report, catalog, lesson, other]
+    Module:
+      type: string
+      enum: [system, power, ttc, data, adcs, orbit, payload, risk, other]
+
+    # ---------- 任务 ----------
+    MissionConstraints:
+      type: object
+      additionalProperties: false
+      properties:
+        orbit_type: { type: string, enum: [SSO, LEO, GEO, custom] }
+        altitude_km: { type: number, minimum: 200, maximum: 36000 }
+        inclination_deg: { type: number, minimum: 0, maximum: 180 }
+        lifetime_years: { type: number, minimum: 0.5, maximum: 20 }
+        payload: { type: string, maxLength: 500 }
+        data_requirements: { type: string, maxLength: 500 }
+        ttc_conditions: { type: string, maxLength: 500 }
+        mass_limit_kg: { type: number, exclusiveMinimum: true, minimum: 0 }
+        power_limit_w: { type: number, exclusiveMinimum: true, minimum: 0 }
+        notes: { type: string, maxLength: 1000 }
+    MissionCreateRequest:
+      type: object
+      required: [goal]
+      additionalProperties: false
+      properties:
+        goal: { type: string, minLength: 1, maxLength: 2000 }
+        constraints: { $ref: '#/components/schemas/MissionConstraints' }
+        provider_id:
+          type: string
+          nullable: true
+          maxLength: 32
+          description: 任务级模型选择（设置页已配置的供应商 id）；空 = 按降级链
+        language: { type: string, enum: [zh], default: zh }
+    MissionCreatedResponse:
+      type: object
+      required: [task_id, status, created_at]
+      properties:
+        task_id: { type: string, pattern: '^t-\d{8}-\d{3}$' }
+        status: { $ref: '#/components/schemas/MissionStatus' }
+        created_at: { type: string, format: date-time }
+    MissionSummary:
+      type: object
+      properties:
+        task_id: { type: string }
+        goal: { type: string }
+        status: { $ref: '#/components/schemas/MissionStatus' }
+        current_step: { type: string, nullable: true }
+        cost_estimate_cny: { type: number }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    MissionList:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/MissionSummary' } }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+    StepInfo:
+      type: object
+      properties:
+        code: { type: string, example: S5 }
+        name: { type: string }
+        status: { $ref: '#/components/schemas/StepStatus' }
+        duration_ms: { type: integer, nullable: true }
+    DocumentInfo:
+      type: object
+      properties:
+        ready: { type: boolean }
+        version: { type: integer, nullable: true }
+        url: { type: string, nullable: true }
+    PendingGate:
+      type: object
+      properties:
+        gate_id: { type: string }
+        type: { $ref: '#/components/schemas/GateType' }
+        param_id: { type: string, nullable: true }
+        message: { type: string }
+    MissionDetail:
+      type: object
+      properties:
+        task_id: { type: string }
+        goal: { type: string }
+        status: { $ref: '#/components/schemas/MissionStatus' }
+        current_step: { type: string, nullable: true }
+        steps: { type: array, items: { $ref: '#/components/schemas/StepInfo' } }
+        cost_estimate_cny: { type: number }
+        document: { $ref: '#/components/schemas/DocumentInfo' }
+        pending_gates: { type: array, items: { $ref: '#/components/schemas/PendingGate' } }
+        last_error: { allOf: [{ $ref: '#/components/schemas/Error' }], nullable: true }
+        corpus_version: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    CancelResponse:
+      type: object
+      properties:
+        task_id: { type: string }
+        status: { $ref: '#/components/schemas/MissionStatus' }
+
+    # ---------- 参数与门禁 ----------
+    ParameterSummary:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        unit: { type: string }
+        value: { type: number }
+        status: { $ref: '#/components/schemas/ParameterStatus' }
+        source_type: { $ref: '#/components/schemas/SourceType' }
+        margin: { type: number, nullable: true }
+        validation_status: { allOf: [{ $ref: '#/components/schemas/ValidationStatus' }], nullable: true }
+        updated_at: { type: string, format: date-time }
+    ParameterList:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ParameterSummary' } }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+    Provenance:
+      type: object
+      properties:
+        type: { type: string, enum: [calculation, citation, assumption, human] }
+        record:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: 计算记录 / 引用 / 假设 / 人工记录（结构随 type 而定，见 docs/03）
+    ParameterDetail:
+      allOf:
+        - $ref: '#/components/schemas/ParameterSummary'
+        - type: object
+          properties:
+            source_ref: { type: string }
+            confidence: { type: string, enum: [high, medium, low] }
+            version: { type: integer }
+            provenance: { $ref: '#/components/schemas/Provenance' }
+            validations:
+              type: array
+              items:
+                type: object
+                properties:
+                  rule_id: { type: string, example: V4 }
+                  status: { $ref: '#/components/schemas/ValidationStatus' }
+                  created_at: { type: string, format: date-time }
+    ReviewRequest:
+      type: object
+      required: [action, reviewer]
+      properties:
+        action: { $ref: '#/components/schemas/GateAction' }
+        comment: { type: string, maxLength: 500, description: reject 时必填 }
+        reviewer: { type: string, maxLength: 100 }
+        edited_value: { type: number, description: 仅 accept 可用；修改后版本 +1 }
+    ReviewResponse:
+      type: object
+      properties:
+        param_id: { type: string }
+        status: { $ref: '#/components/schemas/ParameterStatus' }
+        gate:
+          type: object
+          properties:
+            gate_id: { type: string }
+            action: { $ref: '#/components/schemas/GateAction' }
+            reviewer: { type: string }
+            ts: { type: string, format: date-time }
+        revalidation:
+          type: object
+          properties:
+            queued: { type: boolean }
+            scope: { type: string }
+    RevalidateRequest:
+      type: object
+      properties:
+        scope:
+          type: string
+          default: all
+          description: 'all | module:<module> | param:<param_id>'
+    BlockingItem:
+      type: object
+      properties:
+        rule: { type: string }
+        param_id: { type: string }
+        message: { type: string }
+    RevalidateResponse:
+      type: object
+      properties:
+        queued: { type: boolean }
+        scope: { type: string }
+        summary:
+          type: object
+          properties:
+            pass: { type: integer }
+            warn: { type: integer }
+            block: { type: integer }
+        blocking: { type: array, items: { $ref: '#/components/schemas/BlockingItem' } }
+
+    # ---------- 产物 ----------
+    TraceResponse:
+      type: object
+      properties:
+        task_id: { type: string }
+        event_count: { type: integer }
+        events: { type: array, items: { type: object, additionalProperties: true } }
+    CheckReport:
+      type: object
+      properties:
+        task_id: { type: string }
+        generated_at: { type: string, format: date-time }
+        placeholders_left: { type: integer }
+        numbers_checked: { type: integer }
+        numbers_traceable: { type: integer }
+        citations: { type: integer }
+        citation_issues: { type: integer }
+        status: { $ref: '#/components/schemas/ValidationStatus' }
+
+    DocumentPreview:
+      type: object
+      required: [task_id, version, html]
+      properties:
+        task_id: { type: string }
+        version: { type: integer }
+        html: { type: string, description: Word 转换后的 HTML 片段 }
+        warnings:
+          type: array
+          items: { type: string }
+
+    # ---------- 知识库 ----------
+    Citation:
+      type: object
+      properties:
+        source_url: { type: string, format: uri }
+        page: { type: integer, nullable: true }
+        module: { allOf: [{ $ref: '#/components/schemas/Module' }], nullable: true }
+        is_synthetic: { type: boolean }
+    KBSearchFilters:
+      type: object
+      additionalProperties: false
+      properties:
+        module: { $ref: '#/components/schemas/Module' }
+        doc_type: { $ref: '#/components/schemas/DocType' }
+        year_from: { type: integer, minimum: 1950 }
+        is_synthetic: { type: boolean, default: true }
+    KBSearchRequest:
+      type: object
+      required: [query]
+      additionalProperties: false
+      properties:
+        query: { type: string, minLength: 1, maxLength: 500 }
+        filters: { $ref: '#/components/schemas/KBSearchFilters' }
+        top_k: { type: integer, minimum: 1, maximum: 20, default: 8 }
+    KBSearchResult:
+      type: object
+      properties:
+        chunk_id: { type: string }
+        doc_id: { type: string }
+        title: { type: string }
+        text: { type: string }
+        score: { type: number }
+        citation: { $ref: '#/components/schemas/Citation' }
+    KBSearchResponse:
+      type: object
+      properties:
+        results: { type: array, items: { $ref: '#/components/schemas/KBSearchResult' } }
+        took_ms: { type: integer }
+    KBIngestRequest:
+      type: object
+      required: [file, module, doc_type, license]
+      properties:
+        file: { type: string, format: binary }
+        module: { $ref: '#/components/schemas/Module' }
+        doc_type: { $ref: '#/components/schemas/DocType' }
+        is_synthetic: { type: boolean, default: false }
+        license: { type: string, example: public-nasa }
+        title: { type: string }
+    KBIngestResponse:
+      type: object
+      properties:
+        doc_id: { type: string }
+        title: { type: string }
+        chunks: { type: integer }
+        corpus_version: { type: string }
+    KBDocument:
+      type: object
+      properties:
+        doc_id: { type: string }
+        title: { type: string }
+        module: { $ref: '#/components/schemas/Module' }
+        doc_type: { $ref: '#/components/schemas/DocType' }
+        is_synthetic: { type: boolean }
+        license: { type: string }
+        chunks: { type: integer }
+        fetched_at: { type: string, format: date-time }
+    KBDocumentList:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/KBDocument' } }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+    KBDeleteResponse:
+      type: object
+      properties:
+        doc_id: { type: string }
+        deleted_chunks: { type: integer }
+        corpus_version: { type: string }
+    KBStats:
+      type: object
+      properties:
+        documents: { type: integer }
+        chunks: { type: integer }
+        corpus_version: { type: string }
+        embedding_model: { type: string }
+        last_ingest_at: { type: string, format: date-time }
+
+    # ---------- 系统 ----------
+    HealthResponse:
+      type: object
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        checks:
+          type: object
+          properties:
+            database: { type: string, enum: [ok, error] }
+            embedding: { type: string, enum: [ok, error, loading] }
+            llm:
+              type: object
+              properties:
+                stub: { type: boolean }
+                providers:
+                  type: object
+                  additionalProperties: { type: string, enum: [configured, not_configured] }
+    InfoResponse:
+      type: object
+      properties:
+        app_version: { type: string }
+        api_version: { type: string }
+        stub_mode: { type: boolean }
+        models:
+          type: object
+          properties:
+            primary: { type: string }
+            fallback_order: { type: array, items: { type: string } }
+        corpus_version: { type: string }
+        template_version: { type: string }

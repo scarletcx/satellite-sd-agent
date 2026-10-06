@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://satellite.local/schemas/design-parameter.schema.json",
+  "title": "DesignParameter",
+  "description": "设计参数（IR 核心对象，全系统数据脊椎）。对应 docs/03-data-model.md §3.3",
+  "type": "object",
+  "required": ["id", "name", "value", "unit", "source_type", "source_ref", "status", "version", "created_at", "updated_at"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$",
+      "example": "power.sa.area",
+      "description": "参数 id：<分系统>.<对象>[.<子项>]"
+    },
+    "name": { "type": "string" },
+    "name_en": { "type": "string" },
+    "value": { "type": "number" },
+    "unit": {
+      "type": "string",
+      "enum": ["kg", "g", "m", "mm", "km", "m2", "W", "kW", "Wh", "V", "Ah", "s", "min", "h", "day", "year",
+               "bit", "Gb", "Gb/day", "Mbps", "dB", "dBW", "dBi", "dB/K", "Hz", "GHz",
+               "N", "N·m", "N·m·s", "kg·m2", "deg", "%", "ppm"],
+      "description": "单位枚举（docs/03 §4）"
+    },
+    "source_type": { "type": "string", "enum": ["calc", "doc", "catalog", "assumption", "human"] },
+    "source_ref": {
+      "type": "string",
+      "description": "溯源引用：CalculationRecord / Citation / Assumption / 人工记录 id"
+    },
+    "margin": { "type": ["number", "null"], "description": "余量（绝对值或百分比，注明口径）" },
+    "confidence": { "type": "string", "enum": ["high", "medium", "low"], "default": "medium" },
+    "status": { "type": "string", "enum": ["proposed", "needs_review", "verified", "rejected"] },
+    "parent": { "type": ["string", "null"], "description": "父参数 id（指标树）" },
+    "derived_from": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "上游参数 id 列表（用于失效联动）"
+    },
+    "upstream_hash": {
+      "type": ["string", "null"],
+      "pattern": "^sha256:[0-9a-f]{8,64}$",
+      "description": "生成时上游参数快照 hash（陈旧检测，ADV-06）"
+    },
+    "version": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "examples": [
+    {
+      "id": "power.sa.area",
+      "name": "太阳翼面积",
+      "name_en": "Solar Array Area",
+      "value": 4.8,
+      "unit": "m2",
+      "source_type": "calc",
+      "source_ref": "calc-20261005-0007",
+      "margin": 0.1,
+      "confidence": "high",
+      "status": "verified",
+      "parent": "power.sa",
+      "derived_from": ["power.p_eol_w", "eps.cell_efficiency"],
+      "upstream_hash": "sha256:9f2c71d0a4b5c6e7f8091a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d",
+      "version": 3,
+      "created_at": "2026-10-05T09:10:00Z",
+      "updated_at": "2026-10-05T09:32:00Z"
+    }
+  ]
+}

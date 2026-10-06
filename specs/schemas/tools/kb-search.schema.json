@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://satellite.local/schemas/tools/kb-search.schema.json",
+  "title": "kb.search 工具契约",
+  "description": "知识库混合检索（向量 0.7 + 关键词 0.3）。请求 = #/$defs/request，响应 = #/$defs/response。",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": ["query"],
+      "additionalProperties": false,
+      "properties": {
+        "query": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "filters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "module": { "type": "string", "enum": ["system", "power", "ttc", "data", "adcs", "orbit", "payload", "risk", "other"] },
+            "doc_type": { "type": "string", "enum": ["standard", "manual", "report", "catalog", "lesson", "other"] },
+            "year_from": { "type": "integer", "minimum": 1950 },
+            "is_synthetic": { "type": "boolean", "default": true }
+          }
+        },
+        "top_k": { "type": "integer", "minimum": 1, "maximum": 20, "default": 8 }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["results", "took_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["chunk_id", "doc_id", "title", "text", "score", "citation"],
+            "additionalProperties": false,
+            "properties": {
+              "chunk_id": { "type": "string" },
+              "doc_id": { "type": "string" },
+              "title": { "type": "string" },
+              "text": { "type": "string" },
+              "score": { "type": "number", "minimum": 0, "maximum": 1 },
+              "citation": { "$ref": "../citation.schema.json" }
+            }
+          }
+        },
+        "took_ms": { "type": "integer", "minimum": 0 },
+        "no_evidence": { "type": "boolean", "description": "为 true 时表示未检索到依据（禁止编造）" }
+      }
+    }
+  }
+}

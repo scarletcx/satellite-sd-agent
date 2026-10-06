@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://satellite.local/schemas/tools/doc-check.schema.json",
+  "title": "doc.check 工具契约",
+  "description": "渲染自检（占位符残留 / 数字反查 / 引用完整 / 单位齐全 / 假设闭环，docs/10 §4）。请求 = #/$defs/request，响应 = #/$defs/response。",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": ["docx_path", "ir_snapshot_path"],
+      "additionalProperties": false,
+      "properties": {
+        "docx_path": { "type": "string" },
+        "ir_snapshot_path": { "type": "string" }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["placeholders_left", "numbers_checked", "numbers_traceable", "citations", "citation_issues", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "placeholders_left": { "type": "integer", "minimum": 0, "description": "必须为 0 才允许导出" },
+        "numbers_checked": { "type": "integer", "minimum": 0 },
+        "numbers_traceable": { "type": "integer", "minimum": 0 },
+        "citations": { "type": "integer", "minimum": 0 },
+        "citation_issues": { "type": "integer", "minimum": 0 },
+        "status": { "type": "string", "enum": ["pass", "warn", "block"] },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type", "detail"],
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["placeholder_left", "number_untraceable", "citation_missing",
+                         "citation_dropped", "unit_missing", "assumption_unlinked"]
+              },
+              "detail": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "request": { "docx_path": "artifacts/t-20261005-001/document-v1.docx", "ir_snapshot_path": "artifacts/t-20261005-001/parameters-snapshot.json" },
+      "response": { "placeholders_left": 0, "numbers_checked": 47, "numbers_traceable": 47, "citations": 12, "citation_issues": 0, "status": "pass" }
+    }
+  ]
+}

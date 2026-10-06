@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://satellite.local/schemas/budget.schema.json",
+  "title": "Budget",
+  "description": "预算（质量 / 功耗 / 数据量 / 链路）+ 行项目。对应 docs/03-data-model.md §3.4",
+  "type": "object",
+  "required": ["id", "mission_id", "budget_type", "summary_rule", "total_value", "total_unit", "items", "status", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string" },
+    "mission_id": { "type": "string", "pattern": "^t-[0-9]{8}-[0-9]{3}$" },
+    "budget_type": { "type": "string", "enum": ["mass", "power", "data", "link"] },
+    "summary_rule": { "type": "string", "enum": ["sum", "max", "race"], "description": "汇总规则：求和 / 取最大 / 竞态" },
+    "total_value": { "type": "number" },
+    "total_unit": {
+      "type": "string",
+      "enum": ["kg", "g", "m", "mm", "km", "m2", "W", "kW", "Wh", "V", "Ah", "s", "min", "h", "day", "year",
+               "bit", "Gb", "Gb/day", "Mbps", "dB", "dBW", "dBi", "dB/K", "Hz", "GHz",
+               "N", "N·m", "N·m·s", "kg·m2", "deg", "%", "ppm"]
+    },
+    "margin_pct": { "type": ["number", "null"], "description": "汇总余量口径" },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/BudgetItem" } },
+    "status": { "type": "string", "enum": ["proposed", "needs_review", "verified", "rejected"] },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "BudgetItem": {
+      "type": "object",
+      "required": ["name", "value", "unit", "source_ref"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "description": "行项目名（如「姿控分系统」）" },
+        "param_id": { "type": "string", "description": "关联参数 id" },
+        "value": { "type": "number" },
+        "unit": {
+          "type": "string",
+          "enum": ["kg", "g", "m", "mm", "km", "m2", "W", "kW", "Wh", "V", "Ah", "s", "min", "h", "day", "year",
+                   "bit", "Gb", "Gb/day", "Mbps", "dB", "dBW", "dBi", "dB/K", "Hz", "GHz",
+                   "N", "N·m", "N·m·s", "kg·m2", "deg", "%", "ppm"]
+        },
+        "margin": { "type": ["number", "null"], "description": "行级余量" },
+        "source_ref": { "type": "string", "description": "计算记录 / 引用" },
+        "note": { "type": "string" }
+      }
+    }
+  },
+  "examples": [
+    {
+      "id": "budget-mass-t-20261005-001",
+      "mission_id": "t-20261005-001",
+      "budget_type": "mass",
+      "summary_rule": "sum",
+      "total_value": 72.4,
+      "total_unit": "kg",
+      "margin_pct": 0.2,
+      "items": [
+        { "name": "有效载荷", "param_id": "payload.mass", "value": 18.0, "unit": "kg", "margin": 0.1, "source_ref": "calc-20261005-0003" }
+      ],
+      "status": "verified",
+      "created_at": "2026-10-05T09:03:00Z"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://satellite.local/schemas/citation.schema.json",
+  "title": "Citation",
+  "description": "文档引用（语料 chunk 级）。对应 docs/03-data-model.md §3.9；防编造规则见 docs/04 §6",
+  "type": "object",
+  "required": ["doc_id", "chunk_id", "title", "source_url", "is_synthetic", "license"],
+  "additionalProperties": false,
+  "properties": {
+    "doc_id": { "type": "string", "example": "sst-soa-2026-pwr" },
+    "chunk_id": { "type": "string", "example": "sst-soa-2026-pwr-014" },
+    "title": { "type": "string" },
+    "source_url": { "type": "string", "format": "uri" },
+    "page": { "type": ["integer", "null"], "minimum": 1 },
+    "module": {
+      "type": ["string", "null"],
+      "enum": ["system", "power", "ttc", "data", "adcs", "orbit", "payload", "risk", "other", null]
+    },
+    "is_synthetic": { "type": "boolean", "description": "合成语料标记（展示为 [合成]）" },
+    "license": { "type": "string", "example": "public-nasa" }
+  },
+  "examples": [
+    {
+      "doc_id": "sst-soa-2026-pwr",
+      "chunk_id": "sst-soa-2026-pwr-014",
+      "title": "SST-SOA 电源章节",
+      "source_url": "https://www.nasa.gov/smallsat-institute/sst-soa/",
+      "page": 14,
+      "module": "power",
+      "is_synthetic": false,
+      "license": "public-nasa"
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://satellite.local/schemas/component-candidate.schema.json",
+  "title": "ComponentCandidate",
+  "description": "器件 / 配置选型候选（只读建议，必须带来源）。对应 docs/03-data-model.md §3.8",
+  "type": "object",
+  "required": ["id", "mission_id", "name", "category", "module", "specs", "citations", "status"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "example": "cc-0007" },
+    "mission_id": { "type": "string", "pattern": "^t-[0-9]{8}-[0-9]{3}$" },
+    "name": { "type": "string" },
+    "category": { "type": "string", "example": "reaction_wheel", "description": "类别（如 reaction_wheel / battery / transponder）" },
+    "module": {
+      "type": "string",
+      "enum": ["system", "power", "ttc", "data", "adcs", "orbit", "payload", "risk", "other"]
+    },
+    "specs": {
+      "type": "object",
+      "additionalProperties": { "type": ["number", "string"] },
+      "description": "关键参数键值（含单位）"
+    },
+    "citations": {
+      "type": "array",
+      "minItems": 1,
+      "description": "必须带来源；无来源候选不得输出",
+      "items": { "$ref": "citation.schema.json" }
+    },
+    "status": { "type": "string", "enum": ["suggested"], "description": "本期只读" }
+  },
+  "examples": [
+    {
+      "id": "cc-0007",
+      "mission_id": "t-20261005-001",
+      "name": "反作用轮 RW-3Nms",
+      "category": "reaction_wheel",
+      "module": "adcs",
+      "specs": { "momentum_nms": 3, "mass_kg": 1.2, "power_w": 8 },
+      "citations": [
+        {
+          "doc_id": "sst-soa-2026-adcs",
+          "chunk_id": "sst-soa-2026-adcs-004",
+          "title": "SST-SOA 姿控章节",
+          "source_url": "https://www.nasa.gov/smallsat-institute/sst-soa/",
+          "page": 4,
+          "module": "adcs",
+          "is_synthetic": false,
+          "license": "public-nasa"
+        }
+      ],
+      "status": "suggested"
+    }
+  ]
+}

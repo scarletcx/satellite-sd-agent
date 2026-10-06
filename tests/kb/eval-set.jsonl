@@ -1,0 +1,8 @@
+{"query": "太阳翼面积怎么按功率需求估算", "filters": {"is_synthetic": true}, "expected_doc_prefix": "power", "key_points": ["太阳翼", "寿命末期功率"]}
+{"query": "电池容量、放电深度与阴影期能耗", "filters": {"is_synthetic": true}, "expected_doc_prefix": "power", "key_points": ["电池容量", "放电深度"]}
+{"query": "单圈数据量与每日数据量怎么算", "filters": {"is_synthetic": true}, "expected_doc_prefix": "data", "key_points": ["单圈数据量", "每日数据量"]}
+{"query": "下行窗口与数传能力评估", "filters": {"is_synthetic": true}, "expected_doc_prefix": "data", "key_points": ["下行窗口", "数传"]}
+{"query": "地面站过境窗口与测控弧段", "filters": {"is_synthetic": true}, "expected_doc_prefix": "ttc", "key_points": ["地面站", "测控弧段"]}
+{"query": "链路余量与自由空间损耗", "filters": {"is_synthetic": true}, "expected_doc_prefix": "ttc", "key_points": ["链路余量", "自由空间损耗"]}
+{"query": "太阳同步轨道的重访周期与覆盖", "filters": {"is_synthetic": true}, "expected_doc_prefix": "orbit", "key_points": ["太阳同步轨道", "重访"]}
+{"query": "轨道高度倾角与交点退行", "filters": {"is_synthetic": true}, "expected_doc_prefix": "orbit", "key_points": ["交点退行", "轨道高度"]}

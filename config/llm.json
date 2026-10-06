@@ -1,0 +1,64 @@
+{
+  "providers": [
+    {
+      "id": "deepseek",
+      "label": "DeepSeek 官方",
+      "protocol": "openai",
+      "base_url": "https://api.deepseek.com/v1",
+      "model": "deepseek-chat",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "json_mode": true,
+      "enabled": true,
+      "price_in": 0.002,
+      "price_out": 0.008
+    },
+    {
+      "id": "qwen",
+      "label": "通义千问（DashScope 兼容模式）",
+      "protocol": "openai",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model": "qwen-plus",
+      "api_key_env": "DASHSCOPE_API_KEY",
+      "json_mode": true,
+      "enabled": true,
+      "price_in": 0.004,
+      "price_out": 0.012
+    },
+    {
+      "id": "openai",
+      "label": "OpenAI",
+      "protocol": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "model": "gpt-4o-mini",
+      "api_key_env": "OPENAI_API_KEY",
+      "json_mode": true,
+      "enabled": true,
+      "price_in": 0.01,
+      "price_out": 0.03
+    },
+    {
+      "id": "claude",
+      "label": "Anthropic Claude",
+      "protocol": "anthropic",
+      "base_url": "https://api.anthropic.com",
+      "model": "claude-sonnet-4-5",
+      "api_key_env": "ANTHROPIC_API_KEY",
+      "json_mode": false,
+      "enabled": true,
+      "price_in": 0.022,
+      "price_out": 0.11
+    },
+    {
+      "id": "ollama",
+      "label": "本地 Ollama",
+      "protocol": "openai",
+      "base_url": "http://localhost:11434/v1",
+      "model": "qwen2.5:14b",
+      "keyless": true,
+      "json_mode": false,
+      "enabled": true,
+      "price_in": 0,
+      "price_out": 0
+    }
+  ]
+}

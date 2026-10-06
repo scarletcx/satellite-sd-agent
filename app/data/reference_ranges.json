@@ -1,0 +1,33 @@
+{
+  "source": "UCS Satellite Database (LEO, 10-500 kg)",
+  "url": "https://www.ucs.org/sites/default/files/2024-01/UCS-Satellite-Database%205-1-2023.xlsx",
+  "retrieved_at": "2026-10-06T00:21:08.852684+00:00",
+  "sha256": "9fd7918a15a9ab05c3f8ce5b11d3169a75318973698e654d591f856553b8e6d7",
+  "filter": {
+    "orbit_class": "LEO",
+    "mass_kg": [
+      10.0,
+      500.0
+    ]
+  },
+  "sample_n": {
+    "mass": 5510,
+    "power": 132
+  },
+  "ranges": {
+    "mass_kg": {
+      "p10": 73.6,
+      "p25": 225.0,
+      "p50": 260.0,
+      "p75": 260.0,
+      "p90": 290.0
+    },
+    "power_w": {
+      "p10": 46.0,
+      "p25": 120.0,
+      "p50": 160.0,
+      "p75": 300.0,
+      "p90": 607.2
+    }
+  }
+}

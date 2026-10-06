@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://satellite.local/schemas/validation-result.schema.json",
+  "title": "ValidationResult",
+  "description": "校验结论（pass / warn / block + 证据）。对应 docs/03-data-model.md §3.6；规则定义见 docs/06 §4",
+  "type": "object",
+  "required": ["id", "mission_id", "rule_id", "status", "message", "evidence", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^vr-[0-9]{4,}$", "example": "vr-0018" },
+    "mission_id": { "type": "string", "pattern": "^t-[0-9]{8}-[0-9]{3}$" },
+    "rule_id": {
+      "type": "string",
+      "enum": ["V1", "V2", "V3", "V4", "V5", "V6", "V7"],
+      "description": "V1 Schema/单位/量纲；V2 独立重算；V3 预算闭合与余量；V4 跨模块一致性；V5 历史对比；V6 敏感性；V7 假设台账"
+    },
+    "status": { "type": "string", "enum": ["pass", "warn", "block"] },
+    "param_id": { "type": ["string", "null"] },
+    "message": { "type": "string" },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "规则相关证据（期望/实际/阈值/分位数等），结构随 rule_id 而定"
+    },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "examples": [
+    {
+      "id": "vr-0018",
+      "mission_id": "t-20261005-001",
+      "rule_id": "V3",
+      "status": "pass",
+      "param_id": "mass.total",
+      "message": "质量预算闭合（分项和 72.4 kg = 汇总 72.4 kg）",
+      "evidence": { "expected": 72.4, "actual": 72.4, "tolerance_pct": 0.5 },
+      "created_at": "2026-10-05T09:03:20Z"
+    }
+  ]
+}
