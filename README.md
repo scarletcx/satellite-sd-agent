@@ -1,7 +1,7 @@
 # AI 卫星总体设计助手（satellite-sd-agent）
 
 > 输入任务书 → 输出可复核的整星设计方案：**数字全部来自确定性计算，全链路可追溯、可回放**。
-> 当前状态：**骨架阶段（v0.1）**——S1~S9 编排链路已可运行；C1~C6 计算（质量/功耗/数据量/轨道覆盖/链路/太阳翼）、V1/V3/V4/V7 校验、docx 渲染与下载、知识库（摄取/检索/引用）、LLM 适配层（降级链/提示词/修复重试/成本记账）、前端（React + AntD）为真实实现；未配置 API Key 时自动进入桩模式。真实 Key 联调与 bge-m3/pgvector 为下一步。
+> 当前状态：**全链路可运行原型（v0.4）**。S1~S9 编排链路完整贯通；C1~C6 确定性计算（质量、功耗、数据量、轨道覆盖、测控链路、太阳翼面积）、V1~V7 校验规则全部真实实现；基于 docxtpl 的 Word 文档自动渲染、下载与在线预览；知识库（解析、切片、向量摄取、混合检索、引用溯源）；LLM 适配层支持任意第三方 OpenAI / Anthropic 兼容网关与本地 Ollama，前端设置页支持热修改 URL、Key 与模型并实时生效；React + Ant Design 前端支持任务级模型选择、执行过程进度与提示、参数评审门禁及文档在线预览。已基于真实第三方网关完成全链路联调与验证。
 
 ## 快速开始
 
@@ -9,25 +9,25 @@
 # 1) 安装（无 uv 环境，使用 venv + pip）
 make install
 
-# 2) 运行（默认 SQLite；未配置 LLM Key 时自动进入桩模式）
+# 2) 运行（默认 SQLite；「设置」页配置 Key 后即接入真实模型，未配置时自动进入桩模式）
 cp .env.example .env        # 可选：修改 APP_TOKEN
 make run                    # http://127.0.0.1:8000 ，接口文档 /docs
 
 # 3) 测试
-make test                   # 单元 + 流水线 + API 冒烟（33 个用例）
+make test                   # 单元 + 流水线 + API 冒烟（41 个用例全部通过）
 
 # 4) 常用脚本
 make seed                   # 导入种子语料（幂等）
-make demo-adv               # ADV-01 拦截演示：无计算依据的数字被校验层拦下
-make reference              # 生成 V5 历史对比参考分布（UCS 公开数据）
+make demo-adv               # ADV-01 拦截演示：无计算依据的数字被校验层拦下（导出返回 409）
+make reference              # 生成 V5 历史对比参考分布（基于 UCS 公开卫星数据）
 make snapshot TASK=<task_id>    # 导出任务全量快照（zip）
-make cost-report TASK=<task_id> # 任务成本报告
+make cost-report TASK=<task_id> # 任务成本与 Token 用量报告
 
-# 5) 前端（可选；/api 已代理到 8000）
-cd web && npm install && npm run dev    # http://localhost:5173（「设置」页可配置第三方大模型）
+# 5) 前端（/api 已代理到 8000）
+cd web && npm install && npm run dev    # http://localhost:5173
 ```
 
-## 冒烟演示（骨架版全链路）
+## 冒烟演示（全链路运行）
 
 ```bash
 TOKEN=dev-token-change-me
@@ -35,21 +35,23 @@ BASE=http://127.0.0.1:8000/api/v1
 
 curl -s $BASE/healthz | python3 -m json.tool
 
+# 创建任务（支持通过 provider_id 指定供应商，留空则走设置页降级链）
 curl -s -X POST $BASE/missions \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"goal":"设计一颗 500km SSO 光学遥感小卫星",
        "constraints":{"orbit_type":"SSO","altitude_km":500,"lifetime_years":3,"mass_limit_kg":80}}'
 
-# 用返回的 task_id 查看进度 / 参数 / 校验报告 / trace
+# 用返回的 task_id 查看进度 / 参数 / 校验报告 / trace / 在线预览
 curl -s $BASE/missions/<task_id> -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 curl -s $BASE/missions/<task_id>/parameters -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 curl -s $BASE/missions/<task_id>/check-report -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+curl -s $BASE/missions/<task_id>/document/preview -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 
-# 门禁演示：把 mass_limit_kg 改为 70 → 任务停在 awaiting_gate，
-# 在参数列表找到 mass.total_with_margin，执行 A8 评审后自动恢复：
+# 门禁演示：当 mass_limit_kg 设为 70 时，质量超限触发 V4 阻断，任务停在 awaiting_gate，
+# 工程师在参数列表评审 mass.total_with_margin，通过接口签批后任务自动恢复并完成出稿：
 curl -s -X POST $BASE/missions/<task_id>/parameters/mass.total_with_margin/review \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"action":"accept","reviewer":"you@example.com","comment":"接受超限，后续减重"}'
+  -d '{"action":"accept","reviewer":"engineer@example.com","comment":"接受超限，转入结构轻量化设计"}'
 ```
 
 ## 知识库（摄取 / 检索）
@@ -75,36 +77,37 @@ curl -s -X DELETE "$BASE/kb/documents/<doc_id>?confirm=true" -H "Authorization: 
 
 ```
 app/
-  api/            # 对外接口（docs/07）
-  orchestrator/   # 状态机 S1~S9 + 事件总线
-  steps/          # 每步实现（S5/S6/S9 为真实实现，其余为桩）
-  tools/calc/     # 确定性计算 C1~C3
-  tools/kb/       # 知识库：解析 / 切片 / embedding / 检索
-  tools/doc/      # docx 渲染与自检
-  validation/     # 校验规则 V1/V3/V4（骨架）
-  providers/      # LLM 适配层（降级链 / 提示词 / 用量记账）
-  models.py       # ORM（docs/03 / docs/08）
-prompts/          # 提示词（版本化：S1/S3/S4/S8 + safety）
-templates/        # Word 模板（make template 再生成）
-specs/            # OpenAPI + JSON Schema（单一事实源）
-docs/             # 开发文档集（01~15 + ADR）
-tests/            # 单元 / 流水线 / API / 知识库 / 适配层
-artifacts/        # 运行产物：document / check-report / trace.jsonl
+  api/            # 对外接口层（FastAPI 路由：任务、参数评审、文档导出/预览、知识库、模型设置）
+  orchestrator/   # 状态机 S1~S9 编排引擎与 SSE 实时事件总线
+  steps/          # 各步骤业务逻辑（S1~S9 全链路串联）
+  tools/calc/     # 确定性计算核心：C1 质量、C2 功耗、C3 数据量、C4 链路、C5 轨道覆盖、C6 太阳翼
+  tools/kb/       # 知识库工具链：文档解析、文本分块、Embedding 向量化、混合检索
+  tools/doc/      # Word 渲染与报告自检：docxtpl 动态注入与数字反向溯源查证
+  validation/     # 一致性校验引擎：V1 溯源、V2 独立复算、V3 闭合、V4 约束、V5 历史分布、V6 敏感性、V7 假设
+  providers/      # LLM 适配层：动态供应商注册表、降级链路由、提示词加载、用量与成本记账
+  models.py       # 数据库实体定义（SQLAlchemy ORM）
+prompts/          # 版本化提示词文件（S1/S3/S4/S8 及安全护栏）
+templates/        # 12 章 Word 技术规范模板（通过 make template 自动化生成）
+specs/            # 契约中心：OpenAPI 3.0 接口规范与 17 个 JSON Schema
+docs/             # 系统工程开发文档集（01~15 架构文档与 ADR 决策记录）
+tests/            # 自动化测试集（单元测试、流水线测试、API 冒烟、攻击拦截与设置管理）
+artifacts/        # 任务运行产物存档（Word 方案文档、反向校验报告、全量执行 trace.jsonl）
 ```
 
-## 与文档的差异（骨架阶段已知项）
+## 当前实现与后续生产演进
 
-| 项 | 现状 | 目标（文档） |
+| 模块 | 当前实现（工程原型 demo） | 生产落地演进目标 |
 |---|---|---|
-| 数据库 | 默认 SQLite（`DATABASE_URL` 可切 Postgres） | Postgres 16 + pgvector（docs/08） |
-| docx | ✅ 已实现：docxtpl 渲染 `document-v1.docx` + A10 下载（模板经 `make template` 再生成） | docxtpl 渲染 docx（docs/10） |
-| LLM | ✅ 适配层 + **供应商注册表**（ADR-0006）：任意 OpenAI 兼容 / Anthropic 第三方；前端「设置」页可改 URL/Key/模型，保存即生效；降级链、提示词文件化、修复重试、用量与成本记账；**已用第三方网关完成真实全链路**（4 次调用、¥0.43/任务、91/91 数字可追溯） | ADR-0002 / ADR-0006 |
-| 知识库 | ✅ 已接入：摄取 / 混合检索 / 引用（S2 → 附录引用表）；开发版 embedding（hashing）与 SQLite 向量存储 | pgvector + bge-m3（docs/04） |
-| 前端 | ✅ React 18 + Ant Design 5：任务创建（**任务级模型选择**）/ Trace（SSE + **进度条与过程提示**）/ 参数评审门禁 / 文档与校验（**Word 在线预览**）/ 知识库 / 设置；浏览器端到端验收通过 | docs/09 |
-| 校验 | ✅ V1~V7 全部实现：V1 单位/溯源/引用完整性、V2 独立重算（六类计算记录 0.5% 容差）、V3 闭合/余量、V4 约束、V5 历史对比（UCS P10~P90，`make reference` 生成）、V6 敏感性、V7 假设台账（warn 级） | docs/06 |
+| 数据库存储 | 本地 SQLite（支持通过环境变量无缝切换 PostgreSQL） | PostgreSQL 16 + pgvector 原生扩展（docs/08） |
+| 文本向量检索 | 开发级轻量向量计算与余量检索存储 | 本地部署 bge-m3 深度语义模型 + pgvector 混合检索（docs/04） |
+| 大语言模型 | 支持任意第三方网关与本地模型接入，前端设置页热修改，具备自动降级链、用量审计与任务级指定模型功能，已调通真实 API | 生产环境私有化高可用模型集群与专网网关路由（ADR-0002 / ADR-0006） |
+| 确定性计算 | C1~C6 全部实现，包含质量、功耗、数据量、链路余量、轨道覆盖及太阳翼推导 | 引入高精度轨道力学开源库（如 brahe）实现双路交叉数值复核（ADR-0004） |
+| 一致性校验 | V1~V7 规则集全部落地，包含双算法独立复算、UCS 历史基线比对、硬约束阻断与敏感性分析 | 扩展更多分系统（姿控、热控）的详细物理闭合约束与经验数据库 |
+| 文档与自检 | 自动化生成 12 章 Word 技术方案，支持网页端在线富文本预览与下载，自检脚本校验 92 处数值 100% 可追溯 | 针对型号编制规范增加复杂图表公式与排版样式定制 |
+| 人机交互界面 | 基于 React 18 + AntD 5 构建，支持模型选择、实时进度与过程提示、参数评审门禁及文档在线预览 | 完善多任务协同看板与企业级权限审计体系（docs/09） |
 
-## 开发约定
+## 工程约定
 
-- 接口/数据结构以 `specs/` 为单一事实源；改接口先改 `docs/07-api.md` 再同步生成物
-- 运行产物（trace、文档、校验报告）落在 `artifacts/<task_id>/`，可回放
-- 测试期望值必须独立手算（禁止用系统自身输出当期望，docs/11 §7）
+- 接口与实体以 `specs/` 为单一事实源；调整接口需先同步 `docs/07-api.md`
+- 所有任务的运行产物（trace、Word、自检报告）严格持久化于 `artifacts/<task_id>/`，支持全过程回放
+- 自动化校验期望值独立制定，禁止使用大模型自身生成的数值作为测试真值（docs/11 §7）
