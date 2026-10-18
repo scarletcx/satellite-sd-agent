@@ -40,6 +40,44 @@ def _excluded(value: float) -> bool:
     return 1 <= value <= 12 or 2000 <= value <= 2100
 
 
+def extract_texts(docx_path: Path) -> list[str]:
+    """读取 docx 全文（段落 + 表格单元格），供数字反查与引用检查共用。"""
+    document = Document(str(docx_path))
+    return [text for text in _iter_texts(document)]
+
+
+CITATION_REF_RE = re.compile(r"\bS\d+\b")
+# 「S4 草案」这类步骤标签不是引用（假设台账、说明文字里会出现）
+_STEP_LABEL_TAILS = ("草案", "步骤", "阶段", "设计输入")
+
+
+def check_citations(texts: list[str], citations: list[dict]) -> dict:
+    """引用检查：文中引用的编号必须真实存在；引用条目必须有来源标题。
+
+    只把真正的引用当作引用：形如 `[S1]`、`（S1）` 或独立出现的 S 编号；
+    「（S4 草案）」这类步骤标签会被排除。
+    """
+    known = {str(item.get("id")) for item in citations if item.get("id")}
+    referenced: set[str] = set()
+    for text in texts:
+        content = text or ""
+        for match in CITATION_REF_RE.finditer(content):
+            tail = content[match.end(): match.end() + 4].lstrip()
+            if tail.startswith(_STEP_LABEL_TAILS):
+                continue
+            referenced.add(match.group(0))
+
+    issues: list[dict] = [
+        {"type": "citation_unknown", "detail": ref}
+        for ref in sorted(referenced) if ref not in known
+    ]
+    issues += [
+        {"type": "citation_missing_source", "detail": str(item.get("id"))}
+        for item in citations if not str(item.get("title") or "").strip()
+    ]
+    return {"referenced": sorted(referenced), "known": sorted(known), "issues": issues}
+
+
 def check_document(docx_path: Path, allowed_numbers: list[float]) -> dict:
     document = Document(str(docx_path))
     text = "\n".join(_iter_texts(document))

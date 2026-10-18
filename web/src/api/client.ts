@@ -124,6 +124,16 @@ export interface AssumptionItem {
   confirmed_at: string | null;
 }
 
+export interface MissionSummary {
+  task_id: string;
+  goal: string;
+  status: MissionStatus;
+  current_step: string | null;
+  cost_estimate_cny: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ParameterSummary {
   id: string;
   name: string;
@@ -191,6 +201,17 @@ export const api = {
     }),
 
   getMission: (id: string) => request<MissionDetail>(`/missions/${id}`),
+
+  listMissions: (params: { status?: string; page?: number; page_size?: number } = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") query.set(key, String(value));
+    });
+    const suffix = query.toString();
+    return request<{ items: MissionSummary[]; total: number; page: number; page_size: number }>(
+      `/missions${suffix ? `?${suffix}` : ""}`,
+    );
+  },
 
   cancelMission: (id: string) =>
     request<{ task_id: string; status: string }>(`/missions/${id}/cancel`, { method: "POST" }),

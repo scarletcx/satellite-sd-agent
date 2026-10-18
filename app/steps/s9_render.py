@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from app.db import new_session
 from app.models import Assumption, Mission, SelectionCandidate
 from app.steps.common import load_params
-from app.tools.doc.check import check_document, numbers_in_texts
+from app.tools.doc.check import check_citations, check_document, extract_texts, numbers_in_texts
 from app.tools.doc.render import build_context, format_value, render_document
 from app.tracing import task_dir
 
@@ -111,6 +111,8 @@ def run(ctx: dict) -> dict:
     allowed += numbers_in_texts([json.dumps(candidates, ensure_ascii=False)])
 
     result = check_document(docx_path, allowed)
+    citation_check = check_citations(extract_texts(docx_path), citations)
+    issues = list(result["issues"]) + list(citation_check["issues"])
     report = {
         "task_id": mission_id,
         "document_version": version,
@@ -119,9 +121,10 @@ def run(ctx: dict) -> dict:
         "numbers_checked": result["numbers_checked"],
         "numbers_traceable": result["numbers_traceable"],
         "citations": len(citations),
-        "citation_issues": 0,
-        "status": result["status"],
-        "issues": result["issues"],
+        "citations_referenced": citation_check["referenced"],
+        "citation_issues": len(citation_check["issues"]),
+        "status": "pass" if not issues else "warn",
+        "issues": issues,
     }
     (directory / "check-report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"

@@ -35,12 +35,17 @@ class S4Output(_Loose):
     eps: dict
 
 
+class S7Output(_Loose):
+    suggestions: list = Field(default_factory=list)
+
+
 class S8Output(_Loose):
     sections: dict
 
 
 VALIDATORS: dict[str, type[BaseModel]] = {
-    "S1": S1Output, "S2": S2Output, "S3": S3Output, "S4": S4Output, "S8": S8Output,
+    "S1": S1Output, "S2": S2Output, "S3": S3Output, "S4": S4Output,
+    "S7": S7Output, "S8": S8Output,
 }
 
 

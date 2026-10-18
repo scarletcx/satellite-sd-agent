@@ -17,6 +17,7 @@ class StubProvider:
             "S2": self._s2_queries,
             "S3": self._s3_decompose,
             "S4": self._s4_params,
+            "S7": self._s7_advise,
             "S8": self._s8_narrative,
         }.get(step)
         if handler is None:
@@ -162,6 +163,25 @@ class StubProvider:
                 "margin_pct": 0.10,
             },
         }
+
+    # ------------------------------------------------------------- S7 消解建议
+    @staticmethod
+    def _s7_advise(context: dict) -> dict:
+        directions = {
+            "V4": "复核任务书约束或做降额设计：从分系统分解中寻找减重/降耗空间",
+            "V3": "复核预算闭合：检查输入假设与分系统数据是否自洽，必要时补充工况假设",
+            "V2": "复核计算记录与输入快照：确认是否存在手工修改或版本错配",
+            "V1": "补齐出处：为缺失来源的数字补充计算记录或显式假设，并重新评审",
+            "V5": "与历史基线偏差较大：复核经验假设与任务书指标的可实现性",
+            "V6": "结论对假设敏感：收紧关键假设或增加设计余量后再评估",
+        }
+        findings = context.get("findings") or []
+        return {"suggestions": [
+            {"param_id": item.get("param_id"), "rule_id": item.get("rule_id"),
+             "direction": directions.get(item.get("rule_id"), "复核该项的输入假设与约束条件"),
+             "rationale": item.get("message", "")}
+            for item in findings if item.get("status") == "block"
+        ]}
 
     # ------------------------------------------------------------- S8 叙述
     @staticmethod

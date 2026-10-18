@@ -27,3 +27,5 @@
 
 任务书：
 <<MISSION_REQUEST_JSON>>
+
+<<RETRY_HINT>>

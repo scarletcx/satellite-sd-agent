@@ -19,6 +19,7 @@
 | `/missions/:id` | P2 执行 Trace | 实时步骤 / 校验 / 门禁提醒 | P0 |
 | `/missions/:id/review` | P3+P4 参数评审与冲突处理（Tabs） | 确认 / 驳回 / 差异处置 | P0 |
 | `/missions/:id/document` | P5 文档预览 / 下载 | 下载 Word + 校验报告 | P1 |
+| `/missions` | P0.5 任务列表 | 历史任务、状态过滤、进入详情 | P1 |
 | `/kb` | P6 知识库管理 | 语料摄取 / 检索调试 | P2 |
 
 ## 2. 页面详细规格

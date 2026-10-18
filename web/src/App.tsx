@@ -3,6 +3,7 @@ import { Link, Route, Routes, useLocation } from "react-router-dom";
 
 import MissionCreate from "./pages/MissionCreate";
 import MissionDetail from "./pages/MissionDetail";
+import MissionList from "./pages/MissionList";
 import Knowledge from "./pages/Knowledge";
 import Settings from "./pages/Settings";
 
@@ -11,7 +12,8 @@ const { Header, Content } = Layout;
 export default function App() {
   const location = useLocation();
   const selected = location.pathname.startsWith("/kb") ? ["kb"]
-    : location.pathname.startsWith("/settings") ? ["settings"] : ["missions"];
+    : location.pathname.startsWith("/settings") ? ["settings"]
+      : location.pathname === "/" ? ["create"] : ["missions"];
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
@@ -23,16 +25,18 @@ export default function App() {
           selectedKeys={selected}
           style={{ flex: 1, minWidth: 0 }}
           items={[
-            { key: "missions", label: <Link to="/">设计任务</Link> },
+            { key: "create", label: <Link to="/">新建设计任务</Link> },
+            { key: "missions", label: <Link to="/missions">任务列表</Link> },
             { key: "kb", label: <Link to="/kb">知识库</Link> },
             { key: "settings", label: <Link to="/settings">设置</Link> },
           ]}
         />
-        <Tag color="blue">v0.1</Tag>
+        <Tag color="blue">v0.5</Tag>
       </Header>
       <Content style={{ padding: 24, width: "100%", maxWidth: 1200, margin: "0 auto" }}>
         <Routes>
           <Route path="/" element={<MissionCreate />} />
+          <Route path="/missions" element={<MissionList />} />
           <Route path="/missions/:taskId" element={<MissionDetail />} />
           <Route path="/kb" element={<Knowledge />} />
           <Route path="/settings" element={<Settings />} />

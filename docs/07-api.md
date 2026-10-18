@@ -262,7 +262,8 @@ curl -X POST '{{baseUrl}}/missions' \
 curl -N '{{baseUrl}}/missions/t-20261005-001/events' -H 'Authorization: Bearer {{appToken}}'
 ```
 
-- **业务逻辑**：连接即发 `snapshot`；后续按 1.6 事件表推送；`done` / `error` 后服务端关闭连接；断线用 `Last-Event-ID` 续传
+- **业务逻辑**：连接即发 `snapshot`；后续按 1.6 事件表推送；`done` / `error` 后服务端关闭连接
+- **断线续传**：请求头带 `Last-Event-ID: <n>`（或查询参数同上）时，服务端补发 id 大于 n 的历史事件（每任务保留最近 500 条）后再进入实时推送；事件带自增 `id:`，客户端按 id 去重即可实现「不丢不重」
 - **响应**：`200`，`Content-Type: text/event-stream`
 
 ```text
@@ -610,6 +611,7 @@ PUT /api/v1/settings/llm
 | 2026-10-05 | v0.2 | 细化：字段级参数、请求/响应示例、业务逻辑、错误码全表、SSE 事件表、Apifox 指南 | 不涉及实现，无兼容性问题 |
 | 2026-10-06 | v0.3 | 新增供应商设置接口 C3~C7（注册表 / 运行时配置 / 探测 / 测试，ADR-0006） | 新增接口，向后兼容 |
 | 2026-10-06 | v0.4 | A1 支持 `provider_id`（任务级模型选择）；新增 A13 Word 在线预览 | 新增字段/接口，向后兼容 |
+| 2026-10-06 | v0.5 | 输入确认门禁（A8 语义扩展 + A14 假设台账）；新增 A15 选型候选；A4 支持 `Last-Event-ID` 断线重放；文档版本递增（A2/A10/A13 支持 `version`） | 新增字段/接口，向后兼容 |
 
 ## 8. 关键取舍
 

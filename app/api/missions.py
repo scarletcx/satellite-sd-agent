@@ -229,6 +229,12 @@ def get_mission(mission_id: str, _: None = Depends(require_token)) -> dict:
 async def mission_events(mission_id: str, request: Request, _: None = Depends(require_token)):
     _detail_payload(mission_id)  # 校验存在性
 
+    last_header = request.headers.get("last-event-id")
+    try:
+        last_event_id = int(last_header) if last_header else 0
+    except ValueError:
+        last_event_id = 0
+
     queue = bus.subscribe(mission_id)
 
     def sse(eid: int | None, event: str, data: dict) -> str:
@@ -238,6 +244,9 @@ async def mission_events(mission_id: str, request: Request, _: None = Depends(re
     async def generator():
         try:
             yield sse(0, "snapshot", _detail_payload(mission_id))
+            # 断线重放：补发 Last-Event-ID 之后的历史事件（前端按 id 去重）
+            for item in bus.history_since(mission_id, last_event_id):
+                yield sse(item["id"], item["event"], item["data"])
             while True:
                 if await request.is_disconnected():
                     break
