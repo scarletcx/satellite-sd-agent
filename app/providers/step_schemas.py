@@ -47,6 +47,8 @@ class ChatPlanOutput(_Loose):
     action: str = "answer"
     query: str | None = None
     answer: str | None = None
+    goal: str | None = None
+    args: dict = Field(default_factory=dict)
 
 
 class ChatAnswerOutput(_Loose):
@@ -58,10 +60,19 @@ class ChatSummaryOutput(_Loose):
     summary: str = ""
 
 
+class ChatCompactOutput(_Loose):
+    summary: str = ""
+
+
+class ChatMemoryOutput(_Loose):
+    memories: list = Field(default_factory=list)
+
+
 VALIDATORS: dict[str, type[BaseModel]] = {
     "S1": S1Output, "S2": S2Output, "S3": S3Output, "S4": S4Output,
     "S7": S7Output, "S8": S8Output,
     "CHAT_PLAN": ChatPlanOutput, "CHAT_ANSWER": ChatAnswerOutput, "CHAT_SUMMARY": ChatSummaryOutput,
+    "CHAT_COMPACT": ChatCompactOutput, "CHAT_MEMORY": ChatMemoryOutput,
 }
 
 

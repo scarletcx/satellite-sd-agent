@@ -4,19 +4,24 @@
 > 主界面是聊天（Codex 风格），可上传文档做资料问答；复杂设计任务走可审计的任务流水线。
 > 工程底线不变：**数字来自确定性计算，可追溯、可回放**。
 
-## 当前能力（v0.6）
+## 当前能力（v0.7）
 
-- **个人 agent 对话**：多会话（新建 / 切换 / 重命名 / 删除）、聊天记录持久化、刷新不丢；
-  短期记忆 = 最近 12 条消息，长期记忆 = 会话摘要（SQLite，`chat_sessions.summary`）
-- **文档上传**：pdf / docx / txt / md / csv（≤20MB）→ 本地知识库；按会话隔离检索
-- **RAG**：`sqlite-vec`（vec0 虚表、余弦距离）近邻召回 + 关键词混合打分；扩展不可用时自动回退 JSON 扫描；
-  embedding 可切 `hashing`（默认）或 `bge-m3`（`EMBEDDING_BACKEND=bge-m3`）
-- **对话编排**：LangGraph（plan → retrieve → answer），图表见 `app/chat/graph.py`
-- **设计任务流水线**：S1~S9 编排、C1~C7 确定性计算、V1~V7 校验（含 skyfield/SGP4 轨道交叉验证）、
-  输入确认门禁、参数评审、Word 自动渲染（版本递增）与在线预览、trace 回放
-- **LLM 适配层**：任意第三方 OpenAI / Anthropic 兼容网关与本地 Ollama；前端设置页热改 URL / Key / 模型；
-  自动降级链与用量成本记账
-- 测试：**72 个用例全部通过**
+- **个人 agent 对话**：多会话（新建 / 切换 / 重命名 / 删除 / 置顶）；
+  消息**全量**保存在 SQLite，达到上下文阈值（默认 80%，可在设置页调整/关闭）自动把较早消息折叠为摘要；
+  聊天界面实时显示上下文使用率，`/compact` 可手动压缩
+- **长期记忆**：跨会话保存用户偏好/习惯（自动抽取 + `/remember`、`/memory`、`/forget`），
+  每次对话注入提示词；不保存原始对话
+- **聊天内切换模型与推理强度**：会话级供应商 / 模型覆盖 + `low|medium|high` 推理强度（模型支持时透传）
+- **逐字输出**：SSE 流式回答（OpenAI 兼容供应商原生 token 流；其他供应商按块下发兜底）
+- **文档上传**：pdf / docx / txt / md / csv（≤20MB）+ 图片；`+` 菜单在输入框内；
+  附件默认仅本会话可见，聊天里说「存入知识库」或 `/kb store` 提升为全局知识库
+- **聊天与任务联动**：对话中可新建任务、查看任务列表/状态、审核参数（接受/驳回/改值），
+  也可查询/删除/入库知识库文档；设计任务页面功能完整保留
+- **RAG**：`sqlite-vec` 向量索引 + 关键词混合打分；扩展缺失自动回退
+- **设计任务流水线**：S1~S9、C1~C7、V1~V7（含 skyfield/SGP4 交叉验证）、输入确认门禁、
+  参数评审（接受/驳回/编辑）、Word 自动渲染（版本递增）与在线预览
+- **任务命名**：创建时可命名，列表页可重命名；任务编号使用本地日期
+- 测试：**79 个用例全部通过**
 
 ## 快速开始
 
@@ -32,7 +37,7 @@ make run                    # http://127.0.0.1:8000 ，接口文档 /docs
 cd web && npm install && npm run dev    # http://localhost:5173（主页即对话）
 
 # 4) 测试与常用脚本
-make test                   # 单元 + 流水线 + API 冒烟（72 个用例）
+make test                   # 单元 + 流水线 + API 冒烟（79 个用例）
 make seed                   # 导入种子语料（幂等）
 make corpus-fetch           # 抓取开放许可语料（NASA 公开文档；产物在 corpus/raw/，不入库）
 make demo-adv               # 拦截演示：无计算依据的数字被校验层拦下（导出 409）
@@ -58,6 +63,18 @@ curl -s -X POST "$BASE/chat/sessions/$SID/documents" -H "Authorization: Bearer $
 # 发消息（返回用户消息 + 助手消息，assistant.meta.citations 为引用）
 curl -s -X POST "$BASE/chat/sessions/$SID/messages" -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d '{"content":"请检索资料：链路余量要求是多少？"}'
+
+# 斜杠命令：压缩上下文 / 记住偏好 / 任务联动
+curl -s -X POST "$BASE/chat/sessions/$SID/messages" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"content":"/compact"}'
+curl -s -X POST "$BASE/chat/sessions/$SID/messages" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"content":"/remember 回答先给结论，再给依据"}'
+curl -s -X POST "$BASE/chat/sessions/$SID/messages" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"content":"新建任务：设计一颗 500km SSO 光学遥感小卫星"}'
+
+# 流式对话（SSE：user → delta… → done）
+curl -N -X POST "$BASE/chat/sessions/$SID/messages/stream" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"content":"你好"}'
 
 # 会话列表 / 消息历史 / 删除会话
 curl -s "$BASE/chat/sessions" -H "Authorization: Bearer $TOKEN"

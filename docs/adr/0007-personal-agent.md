@@ -39,3 +39,15 @@
 - 接口：新增 `D1~D8` 聊天接口（[07](../07-api.md)）；
 - 依赖：新增 `sqlite-vec`、`langgraph`；不再默认要求 Postgres（ADR-0003 的 Postgres 目标形态降级为可选的企业部署选项）；
 - 安全：上传文件仅进本地知识库；模型调用仍会把必要的提示词/片段发往所选供应商（设置页可见）。
+
+## 5. 补充（2026-10-18）：上下文与长期记忆、任务联动
+
+1. **短期上下文**：消息全量入库；达到模型窗口阈值（默认 80%，设置页可调、可关）时自动压缩为摘要，
+   保留最近若干条；`/compact` 手动触发；窗口大小取供应商标注的 `context_window`（默认 128k）。
+2. **长期记忆**：新增 `user_memories`，只保存跨会话有效的偏好/习惯（自动抽取 + `/remember`），
+   不保存原始对话；每轮注入提示词。
+3. **聊天与任务联动**：plan 动作扩展为工具集合（create/list/status/review mission、kb store/list/delete、
+   memory add/list/delete）；任务与评审逻辑抽到 `app/services/` 供 API 与聊天复用。
+4. **模型与推理强度**：会话级 `provider_id/model/reasoning_effort`，随调用透传（OpenAI 兼容
+   `reasoning_effort`；Anthropic 忽略该字段）。
+5. **流式**：OpenAI 兼容供应商走原生 SSE token 流；其他供应商按块下发兜底；前端逐字渲染。

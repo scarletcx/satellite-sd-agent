@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Badge, Button, Card, Select, Space, Table, Tag, Typography, message } from "antd";
+import { Badge, Button, Card, Input, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 
 import { ApiError, api, type MissionSummary } from "../api/client";
@@ -16,11 +16,20 @@ const STATUS: Record<string, { color: string; text: string }> = {
   canceled: { color: "default", text: "已取消" },
 };
 
+function formatTime(value: string | null): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN", { hour12: false });
+}
+
 export default function MissionList() {
   const [items, setItems] = useState<MissionSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameId, setRenameId] = useState<string>("");
+  const [renameValue, setRenameValue] = useState("");
   const navigate = useNavigate();
 
   const load = useCallback(async () => {
@@ -40,11 +49,30 @@ export default function MissionList() {
     load();
   }, [load]);
 
+  const openRename = (item: MissionSummary) => {
+    setRenameId(item.task_id);
+    setRenameValue(item.title);
+    setRenameOpen(true);
+  };
+
+  const submitRename = async () => {
+    if (!renameId || !renameValue.trim()) return;
+    try {
+      await api.renameMission(renameId, renameValue.trim());
+      setRenameOpen(false);
+      message.success("任务名称已更新");
+      await load();
+    } catch (error) {
+      if (error instanceof ApiError) message.error(`[${error.code}] ${error.message}`);
+    }
+  };
+
   const columns: ColumnsType<MissionSummary> = [
     {
-      title: "任务", dataIndex: "task_id", width: 150,
+      title: "任务号", dataIndex: "task_id", width: 150,
       render: (value: string) => <Link to={`/missions/${value}`}><Text code>{value}</Text></Link>,
     },
+    { title: "名称", dataIndex: "title", width: 200, ellipsis: true },
     { title: "目标", dataIndex: "goal", ellipsis: true },
     {
       title: "状态", dataIndex: "status", width: 110,
@@ -60,12 +88,15 @@ export default function MissionList() {
     },
     {
       title: "更新时间", dataIndex: "updated_at", width: 170,
-      render: (value: string) => value?.slice(0, 19).replace("T", " "),
+      render: (value: string) => formatTime(value),
     },
     {
-      title: "操作", width: 90,
+      title: "操作", width: 160,
       render: (_, record) => (
-        <Button size="small" onClick={() => navigate(`/missions/${record.task_id}`)}>查看</Button>
+        <Space size={0}>
+          <Button size="small" type="link" onClick={() => navigate(`/missions/${record.task_id}`)}>查看</Button>
+          <Button size="small" type="link" onClick={() => openRename(record)}>重命名</Button>
+        </Space>
       ),
     },
   ];
@@ -95,6 +126,15 @@ export default function MissionList() {
           pagination={{ pageSize: 15 }}
         />
       </Card>
+
+      <Modal
+        open={renameOpen} title="重命名任务" okText="保存" cancelText="取消"
+        onCancel={() => setRenameOpen(false)} onOk={submitRename}
+      >
+        <Input value={renameValue} maxLength={120}
+          onChange={(event) => setRenameValue(event.target.value)} />
+      </Modal>
+
       <Tag color="blue">提示：处于「待人工门禁」的任务需要到任务详情页的「参数评审」完成确认后才会继续。</Tag>
     </Space>
   );

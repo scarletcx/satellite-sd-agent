@@ -11,7 +11,7 @@ class StubProvider:
     def available(self) -> bool:
         return True
 
-    def chat_json(self, step: str, context: dict) -> tuple[dict, dict]:
+    def chat_json(self, step: str, context: dict, options: dict | None = None) -> tuple[dict, dict]:
         handler = {
             "S1": self._s1_parse,
             "S2": self._s2_queries,
@@ -22,6 +22,8 @@ class StubProvider:
             "CHAT_PLAN": self._chat_plan,
             "CHAT_ANSWER": self._chat_answer,
             "CHAT_SUMMARY": self._chat_summary,
+            "CHAT_COMPACT": self._chat_compact,
+            "CHAT_MEMORY": self._chat_memory,
         }.get(step)
         if handler is None:
             raise ValueError(f"桩 Provider 未实现步骤：{step}")
@@ -189,9 +191,32 @@ class StubProvider:
     # ------------------------------------------------------------- 对话（个人 agent）
     @staticmethod
     def _chat_plan(context: dict) -> dict:
+        import re
+
         question = str(context.get("question") or "")
-        keywords = ("资料", "文档", "手册", "检索", "上传", "知识库", "引用", "标准")
-        if any(word in question for word in keywords):
+        task = re.search(r"t-\d{8}-\d{3}", question)
+
+        if ("新建" in question and "任务" in question) or "设计一颗" in question:
+            return {"action": "create_mission", "goal": question, "args": {}}
+        if "任务" in question and any(word in question for word in
+                                      ("列表", "有哪些", "进行中", "未完成", "已完成")):
+            return {"action": "list_missions", "args": {}}
+        if task and any(word in question for word in ("状态", "进度", "审核", "评审", "通过", "拒绝")):
+            if any(word in question for word in ("审核", "评审", "通过", "拒绝")):
+                return {"action": "mission_review",
+                        "args": {"task_id": task.group(0), "param_id": "", "review_action": "accept"}}
+            return {"action": "mission_status", "args": {"task_id": task.group(0)}}
+        if any(word in question for word in ("存入知识库", "存到知识库", "保存到知识库", "入库")):
+            return {"action": "kb_store", "args": {}}
+        if any(word in question for word in ("知识库有哪些", "列出知识库", "知识库列表", "知识库文档")):
+            return {"action": "kb_list"}
+        if "删除" in question and "知识库" in question:
+            return {"action": "kb_delete", "args": {}}
+        if any(word in question for word in ("你记得", "长期记忆", "我的偏好")):
+            return {"action": "memory_list"}
+        if any(word in question for word in ("记住", "以后都", "我的习惯")):
+            return {"action": "memory_add", "args": {"content": question, "category": "preference"}}
+        if any(word in question for word in ("检索", "资料", "文档", "手册", "引用", "标准")):
             return {"action": "search", "query": question}
         return {"action": "answer",
                 "answer": f"（桩模式）收到：{question}。在设置页配置真实模型后，我会给出完整回答。"}
@@ -215,6 +240,32 @@ class StubProvider:
         parts = [f"{item.get('role')}: {str(item.get('content'))[:80]}" for item in history[-6:]]
         summary = (str(context.get("summary") or "") + " " + " / ".join(parts)).strip()
         return {"summary": summary[:200]}
+
+    @staticmethod
+    def _chat_compact(context: dict) -> dict:
+        """桩模式压缩：保留早期摘要 + 折叠消息的首段，作为新摘要。"""
+        history = context.get("history") or []
+        lines = [f"{item.get('role')}: {str(item.get('content'))[:80]}" for item in history]
+        merged = (str(context.get("summary") or "") + " " + " / ".join(lines)).strip()
+        return {"summary": merged[:600]}
+
+    @staticmethod
+    def _chat_memory(context: dict) -> dict:
+        """桩模式不做自动记忆抽取（可用 /remember 手动写入）。"""
+        return {"memories": []}
+
+    def text_stream(self, step: str, context: dict):
+        """桩模式的流式回答：确定性文本分块下发。"""
+        question = str(context.get("question") or "")
+        evidence = context.get("evidence") or []
+        if evidence:
+            titles = "；".join(str(item.get("title")) for item in evidence[:3])
+            text = (f"根据检索到的资料（{titles}），与「{question}」相关的内容如下："
+                    f"{str(evidence[0].get('snippet') or '')[:200]}")
+        else:
+            text = f"（桩模式）收到：{question}。在设置页配置真实模型后，我会给出完整回答。"
+        for index in range(0, len(text), 6):
+            yield text[index:index + 6]
 
     # ------------------------------------------------------------- S8 叙述
     @staticmethod

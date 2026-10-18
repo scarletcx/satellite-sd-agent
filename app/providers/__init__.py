@@ -67,12 +67,18 @@ def reset_provider() -> None:
     _chains.clear()
 
 
-def chat_json(step: str, context: dict) -> dict:
-    """步骤层统一入口：按任务选择供应商（优先），返回结构化 payload 并记录用量。"""
-    preferred = _mission_provider(context.get("task_id"))
-    payload, usage = get_provider(preferred).chat_json(step, context)
+def chat_json(step: str, context: dict, options: dict | None = None) -> dict:
+    """步骤层统一入口：按任务/会话选择供应商，返回结构化 payload 并记录用量。"""
+    preferred = context.get("provider_id") or _mission_provider(context.get("task_id"))
+    payload, usage = get_provider(preferred).chat_json(step, context, options=options)
     _record_usage(context.get("task_id"), step, usage)
     return payload
+
+
+def stream_text(step: str, context: dict, options: dict | None = None):
+    """纯文本流式输出（对话回答用），逐块 yield。"""
+    preferred = context.get("provider_id") or _mission_provider(context.get("task_id"))
+    yield from get_provider(preferred).stream_text(step, context, options=options)
 
 
 def _record_usage(task_id: str | None, step: str, usage: dict) -> None:

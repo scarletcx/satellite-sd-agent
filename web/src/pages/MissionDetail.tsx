@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   Alert, Badge, Button, Card, Descriptions, Input, InputNumber, List, Modal, Popconfirm,
-  Progress, Radio, Select, Space, Table, Tabs, Tag, Timeline, Typography, message,
+  Progress, Radio, Select, Space, Spin, Table, Tabs, Tag, Timeline, Typography, message,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 
@@ -189,13 +189,16 @@ export default function MissionDetail() {
   };
   const blocking = params.filter((item) => ["needs_review", "rejected"].includes(item.status));
 
-  const openReview = (param: ParameterSummary) => {
+  const openReview = (param: ParameterSummary,
+                      action: "accept" | "reject" = "accept",
+                      initialValue: number | null = null) => {
     setReviewParam(param);
-    setReviewAction("accept");
+    setReviewAction(action);
     setReviewComment("");
-    setReviewValue(null);
+    setReviewValue(action === "accept" ? initialValue : null);
     setReviewOpen(true);
   };
+  const CONFIRMABLE = ["draft", "needs_review", "proposed", "rejected"];
 
   const submitReview = async () => {
     if (!reviewParam) return;
@@ -248,7 +251,24 @@ export default function MissionDetail() {
     }
   };
 
-  if (!detail) return <Card loading />;
+  if (!detail) {
+    return (
+      <Card title="正在启动任务…">
+        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          <Alert
+            type="info" showIcon
+            message="任务已创建，正在解析任务书并启动流水线…"
+            description="该页面会自动刷新；如果长时间停在 0%，可点击刷新或查看服务端日志。"
+          />
+          <Progress percent={8} status="active" showInfo={false} />
+          <Space>
+            <Spin /><Text type="secondary">建立编排上下文（S1 解析 → S2 检索 → …）</Text>
+          </Space>
+          <Button onClick={load}>刷新</Button>
+        </Space>
+      </Card>
+    );
+  }
 
   const statusInfo = MISSION_STATUS[detail.status] ?? { color: "default", text: detail.status };
 
@@ -282,15 +302,33 @@ export default function MissionDetail() {
       render: (value: string | null) => (value ? <Badge color={VALIDATION_COLOR[value]} text={value} /> : "-"),
     },
     {
-      title: "操作", width: 90,
+      title: "操作", width: 190,
       render: (_, row) => (
-        <Button
-          size="small" type="link"
-          disabled={!["needs_review", "proposed"].includes(row.status)}
-          onClick={() => openReview(row)}
-        >
-          评审
-        </Button>
+        <Space size={0}>
+          <Button
+            size="small" type="link"
+            disabled={!CONFIRMABLE.includes(row.status)}
+            onClick={() => openReview(row)}
+          >
+            评审
+          </Button>
+          <Button
+            size="small" type="link" danger
+            disabled={!CONFIRMABLE.includes(row.status)}
+            onClick={() => openReview(row, "reject")}
+          >
+            驳回
+          </Button>
+          {!row.id.startsWith("input.") && (
+            <Button
+              size="small" type="link"
+              disabled={!CONFIRMABLE.includes(row.status)}
+              onClick={() => openReview(row, "accept", row.value)}
+            >
+              编辑
+            </Button>
+          )}
+        </Space>
       ),
     },
   ];
@@ -318,7 +356,8 @@ export default function MissionDetail() {
           },
           { key: "cost", label: "成本估算（¥）", children: detail.cost_estimate_cny },
           { key: "corpus", label: "语料版本", children: detail.corpus_version },
-          { key: "updated", label: "更新时间", children: detail.updated_at?.slice(0, 19) },
+          { key: "updated", label: "更新时间", children: detail.updated_at
+            ? new Date(detail.updated_at).toLocaleString("zh-CN", { hour12: false }) : "-" },
         ]}
       />
       {detail.pending_gates.length > 0 && (
@@ -375,6 +414,8 @@ export default function MissionDetail() {
                     actions={[
                       <Button key="accept" size="small" type="primary"
                         onClick={() => confirmDraft(item.id)}>确认</Button>,
+                      <Button key="reject" size="small" danger
+                        onClick={() => openReview(item, "reject")}>驳回</Button>,
                     ]}
                   >
                     <List.Item.Meta
@@ -533,7 +574,7 @@ export default function MissionDetail() {
   return (
     <Space direction="vertical" style={{ width: "100%" }} size="middle">
       <Card
-        title={`任务 ${detail.task_id}`}
+        title={`任务 ${detail.title || detail.task_id}`}
         extra={
           <Space>
             <Badge color={statusInfo.color} text={statusInfo.text} />
@@ -580,11 +621,14 @@ export default function MissionDetail() {
             onChange={(event) => setReviewAction(event.target.value)}
             options={[{ value: "accept", label: "接受（accept）" }, { value: "reject", label: "驳回（reject）" }]}
           />
-          {reviewAction === "accept" && (
+          {reviewAction === "accept" && !reviewParam?.id.startsWith("input.") && (
             <InputNumber
               style={{ width: "100%" }} placeholder="修正值（可选，填写后版本 +1）"
               value={reviewValue} onChange={(value) => setReviewValue(value)}
             />
+          )}
+          {reviewParam?.id.startsWith("input.") && (
+            <Text type="secondary">分组设计输入不支持直接改值：可接受，或驳回并重新创建任务。</Text>
           )}
           <Input.TextArea
             rows={3} value={reviewComment}

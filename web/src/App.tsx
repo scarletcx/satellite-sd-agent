@@ -32,7 +32,7 @@ export default function App() {
             { key: "settings", label: <Link to="/settings">设置</Link> },
           ]}
         />
-        <Tag color="blue">v0.6</Tag>
+        <Tag color="blue">v0.7</Tag>
       </Header>
       <Content style={{ padding: 24, width: "100%", maxWidth: 1200, margin: "0 auto" }}>
         <Routes>

@@ -17,6 +17,7 @@ class Mission(Base):
     __tablename__ = "missions"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)  # t-YYYYMMDD-NNN
+    title: Mapped[str | None] = mapped_column(String(120), nullable=True)  # 用户命名；空 = 默认（按目标截断）
     goal: Mapped[str] = mapped_column(Text)
     constraints: Mapped[dict] = mapped_column(JSON, default=dict)
     provider_id: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 任务级模型选择（供应商 id）
@@ -178,7 +179,12 @@ class ChatSession(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)  # cs-YYYYMMDD-NNN
     title: Mapped[str] = mapped_column(String(120), default="新会话")
-    summary: Mapped[str] = mapped_column(Text, default="")          # 长期记忆：滚动摘要
+    summary: Mapped[str] = mapped_column(Text, default="")          # 上下文压缩摘要（短期记忆折叠）
+    compacted_until: Mapped[int] = mapped_column(Integer, default=0)  # 已折叠的消息 id 上限
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    provider_id: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 会话级模型选择
+    model: Mapped[str | None] = mapped_column(String(120), nullable=True)       # 会话级模型覆盖
+    reasoning_effort: Mapped[str | None] = mapped_column(String(16), nullable=True)  # low/medium/high
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
@@ -207,4 +213,20 @@ class ChatDocument(Base):
     doc_id: Mapped[str] = mapped_column(String(64))
     filename: Mapped[str] = mapped_column(String(200))
     chunks: Mapped[int] = mapped_column(Integer, default=0)
+    scope: Mapped[str] = mapped_column(String(16), default="session")  # session / global
+    kind: Mapped[str] = mapped_column(String(16), default="document")  # document / image
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class UserMemory(Base):
+    """跨会话长期记忆：偏好、习惯、稳定的用户信息（不保存原始对话）。"""
+
+    __tablename__ = "user_memories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    content: Mapped[str] = mapped_column(Text)
+    category: Mapped[str] = mapped_column(String(32), default="preference")
+    source_session: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)

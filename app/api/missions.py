@@ -24,6 +24,7 @@ from app.models import (
 from app.orchestrator import engine
 from app.orchestrator.events import bus
 from app.orchestrator.ids import next_mission_id
+from app.services import missions as mission_service
 from app.tracing import read_trace, task_dir
 
 router = APIRouter(tags=["Missions"])
@@ -47,6 +48,8 @@ class MissionConstraints(BaseModel):
 
 class MissionCreate(BaseModel):
     goal: str = Field(min_length=1, max_length=2000)
+    title: str | None = Field(default=None, max_length=120,
+                              description="任务名称；空 = 用目标首行（≤40 字）")
     constraints: MissionConstraints | None = None
     provider_id: str | None = Field(default=None, max_length=32,
                                     description="任务级模型选择（供应商 id）；空 = 按设置页降级链")
@@ -139,6 +142,7 @@ def _detail_payload(mission_id: str) -> dict:
         }
         return {
             "task_id": mission.id,
+            "title": mission.title or mission_service.default_title(mission.goal),
             "goal": mission.goal,
             "status": mission.status,
             "current_step": mission.current_step,
@@ -172,21 +176,16 @@ async def create_mission(payload: MissionCreate, _: None = Depends(require_token
             api_error(400, "SCHEMA_INVALID",
                       f"供应商未配置密钥：{payload.provider_id}", {"field": "provider_id"})
 
-    with new_session() as session:
-        task_id = next_mission_id(session)
-        mission = Mission(
-            id=task_id,
+    try:
+        return mission_service.create_mission(
             goal=payload.goal,
-            constraints=(payload.constraints.model_dump(exclude_none=True) if payload.constraints else {}),
-            provider_id=payload.provider_id or None,
-            status="queued",
+            constraints=(payload.constraints.model_dump(exclude_none=True)
+                         if payload.constraints else {}),
+            provider_id=payload.provider_id,
+            title=payload.title,
         )
-        session.add(mission)
-        session.commit()
-        created_at = mission.created_at
-
-    asyncio.create_task(engine.run_mission(task_id))
-    return {"task_id": task_id, "status": "queued", "created_at": _iso(created_at)}
+    except mission_service.MissionError as exc:
+        api_error(400, "SCHEMA_INVALID", str(exc), {"field": "goal"})
 
 
 # ---------------------------------------------------------------- A2 列表
@@ -207,7 +206,9 @@ def list_missions(
         rows = (query.order_by(Mission.created_at.desc())
                 .offset((page - 1) * page_size).limit(page_size).all())
         items = [{
-            "task_id": m.id, "goal": m.goal, "status": m.status,
+            "task_id": m.id,
+            "title": m.title or mission_service.default_title(m.goal),
+            "goal": m.goal, "status": m.status,
             "current_step": m.current_step, "cost_estimate_cny": m.cost_estimate_cny,
             "created_at": _iso(m.created_at), "updated_at": _iso(m.updated_at),
         } for m in rows]
@@ -220,6 +221,21 @@ def list_missions(
 @router.get("/missions/{mission_id}")
 def get_mission(mission_id: str, _: None = Depends(require_token)) -> dict:
     return _detail_payload(mission_id)
+
+
+class MissionRenameBody(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+
+
+@router.patch("/missions/{mission_id}")
+def rename_mission(mission_id: str, body: MissionRenameBody,
+                   _: None = Depends(require_token)) -> dict:
+    try:
+        return mission_service.rename_mission(mission_id, body.title)
+    except mission_service.MissionError as exc:
+        if exc.not_found:
+            api_error(404, "MISSION_NOT_FOUND", str(exc), {"task_id": mission_id})
+        api_error(400, "SCHEMA_INVALID", str(exc), {"field": "title"})
 
 
 # ---------------------------------------------------------------- A4 SSE

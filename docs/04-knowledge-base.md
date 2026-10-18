@@ -134,6 +134,18 @@ export EMBEDDING_MODEL=BAAI/bge-m3      # 可选
 
 **企业部署备选（非默认）**：Postgres 16 + pgvector 仍在 [08](./08-storage.md) 保留为可选方案；个人 agent 模式不依赖 Docker。
 
+## 9.2 上下文记忆与长期记忆（参考 Codex / Command Code）
+
+- **消息全量保存**：`chat_messages` 不裁剪；发给模型的是「压缩摘要 + 未折叠消息」。
+- **自动压缩**：当估算上下文达到窗口的阈值（默认 80%，设置页可调、可关闭）时，把较早消息折叠进
+  `chat_sessions.summary`（保留最近 `keep_recent` 条，默认 6）；`/compact` 可手动触发。
+  压缩策略：保留目标/约束、关键数字与结论、未解决问题与偏好；丢弃寒暄与冗余解释（提示词 `chat_compact`）。
+- **使用率展示**：`GET /chat/sessions/{id}/context` 返回估算 tokens、窗口、百分比、已折叠位置；
+  聊天界面实时显示；token 为估算值。
+- **长期记忆**：`user_memories` 表只保存跨会话有效的偏好/习惯/背景信息（不保存原始对话）；
+  每累计 10 条消息自动抽取（`chat_memory` 提示词），也可 `/remember`；对话时注入提示词。
+- 模型切换与推理强度：会话级 `provider_id/model/reasoning_effort`，随每次模型调用透传。
+
 ## 10. 关键取舍
 
 | 决策 | 备选 | 理由 | ADR |

@@ -1,6 +1,8 @@
 """OpenAI 兼容供应商（DeepSeek / Qwen / OpenAI / Ollama 通用）。"""
 from __future__ import annotations
 
+import json
+
 import httpx
 
 from app.providers.base import ProviderCallResult, ProviderError
@@ -28,18 +30,28 @@ class OpenAICompatProvider:
             headers={"Authorization": f"Bearer {api_key}"},
         )
 
-    def call(self, system: str, user: str, temperature: float) -> ProviderCallResult:
+    def _body(self, system: str, user: str, temperature: float,
+              options: dict | None, stream: bool) -> dict:
+        options = options or {}
         body: dict = {
-            "model": self.model,
+            "model": options.get("model") or self.model,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
             "temperature": temperature,
         }
-        if self._json_mode:
+        if stream:
+            body["stream"] = True
+        if self._json_mode and options.get("json_mode", True) and not stream:
             body["response_format"] = {"type": "json_object"}
+        if options.get("reasoning_effort"):
+            body["reasoning_effort"] = options["reasoning_effort"]
+        return body
 
+    def call(self, system: str, user: str, temperature: float,
+             options: dict | None = None) -> ProviderCallResult:
+        body = self._body(system, user, temperature, options, stream=False)
         try:
             response = self._client.post("/chat/completions", json=body)
         except httpx.HTTPError as exc:
@@ -63,3 +75,37 @@ class OpenAICompatProvider:
             tokens_in=int(usage.get("prompt_tokens") or 0),
             tokens_out=int(usage.get("completion_tokens") or 0),
         )
+
+    def call_stream(self, system: str, user: str, temperature: float,
+                    options: dict | None = None):
+        """SSE 流式输出（仅文本增量）。"""
+        body = self._body(system, user, temperature, options, stream=True)
+        try:
+            with self._client.stream("POST", "/chat/completions", json=body) as response:
+                if response.status_code >= 400:
+                    response.read()
+                    raise ProviderError(
+                        f"{self.name} HTTP {response.status_code}: {response.text[:200]}",
+                        provider=self.name, status=response.status_code,
+                    )
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    line = line.strip()
+                    if not line.startswith("data:"):
+                        continue
+                    payload = line[len("data:"):].strip()
+                    if payload == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    choices = data.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = (choices[0].get("delta") or {}).get("content")
+                    if delta:
+                        yield delta
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"{self.name} 网络错误：{exc}", provider=self.name) from exc

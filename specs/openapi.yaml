@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: AI 卫星总体设计助手 API
-  version: 0.6.0
+  version: 0.7.0
   description: |
     由 `docs/07-api.md`（v0.2 细化版）生成，用途：**Apifox / Postman 直接导入进行手动测试**。
     - 本地 Base URL：`http://127.0.0.1:8000/api/v1`

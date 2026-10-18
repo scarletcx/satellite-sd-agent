@@ -41,6 +41,7 @@ class ProviderSpecIn(BaseModel):
     enabled: bool = True
     keyless: bool = False
     timeout_s: float = 120.0
+    context_window: int = 128000
     price_in: float = 0.0
     price_out: float = 0.0
 
@@ -86,7 +87,8 @@ def put_llm_settings(body: SettingsPut, _: None = Depends(require_token)) -> dic
             api_key_env=(existing[item.id].api_key_env if item.id in existing
                          else f"{item.id.upper()}_API_KEY"),
             json_mode=item.json_mode, enabled=item.enabled, keyless=item.keyless,
-            timeout_s=item.timeout_s, price_in=item.price_in, price_out=item.price_out,
+            timeout_s=item.timeout_s, context_window=item.context_window,
+            price_in=item.price_in, price_out=item.price_out,
         ))
 
     save_runtime_specs(merged)
@@ -100,6 +102,31 @@ def reset_llm_settings(_: None = Depends(require_token)) -> dict:
     clear_runtime_specs()
     reset_provider()
     return _snapshot()
+
+
+# ------------------------------------------------------------ 对话/上下文设置
+
+
+class ChatSettingsBody(BaseModel):
+    auto_compact: bool | None = None
+    threshold_pct: int | None = Field(default=None, ge=20, le=95)
+    default_window: int | None = Field(default=None, ge=8000, le=2_000_000)
+    keep_recent: int | None = Field(default=None, ge=2, le=30)
+    summary_max_chars: int | None = Field(default=None, ge=300, le=6000)
+
+
+@router.get("/settings/chat")
+def get_chat_settings(_: None = Depends(require_token)) -> dict:
+    from app.chat import context as chat_context
+
+    return chat_context.get_settings()
+
+
+@router.put("/settings/chat")
+def put_chat_settings(body: ChatSettingsBody, _: None = Depends(require_token)) -> dict:
+    from app.chat import context as chat_context
+
+    return chat_context.set_settings(body.model_dump(exclude_none=True))
 
 
 class ProbeBody(BaseModel):

@@ -92,6 +92,7 @@ export interface PendingGate {
 
 export interface MissionDetail {
   task_id: string;
+  title: string;
   goal: string;
   status: MissionStatus;
   current_step: string | null;
@@ -126,6 +127,7 @@ export interface AssumptionItem {
 
 export interface MissionSummary {
   task_id: string;
+  title: string;
   goal: string;
   status: MissionStatus;
   current_step: string | null;
@@ -138,10 +140,35 @@ export interface ChatSessionItem {
   id: string;
   title: string;
   summary: string;
+  pinned: boolean;
+  provider_id: string | null;
+  model: string | null;
+  reasoning_effort: "low" | "medium" | "high" | null;
   created_at: string;
   updated_at: string;
   message_count: number;
   last_message: string;
+}
+
+export interface ChatContext {
+  window: number;
+  used_tokens: number;
+  percent: number;
+  summary_chars: number;
+  compacted_until: number;
+  pending_messages: number;
+  total_messages: number;
+  auto_compact: boolean;
+  threshold_pct: number;
+  keep_recent: number;
+}
+
+export interface ChatSettings {
+  auto_compact: boolean;
+  threshold_pct: number;
+  default_window: number;
+  keep_recent: number;
+  summary_max_chars: number;
 }
 
 export interface ChatCitation {
@@ -172,11 +199,14 @@ export interface ChatDocumentItem {
   doc_id: string;
   filename: string;
   chunks: number;
+  scope: "session" | "global" | string;
+  kind: "document" | "image" | string;
   created_at: string;
 }
 
 export interface ChatSessionDetail extends ChatSessionItem {
   documents: ChatDocumentItem[];
+  context?: ChatContext;
 }
 
 export interface ParameterSummary {
@@ -224,6 +254,7 @@ export interface ProviderSetting {
   enabled: boolean;
   keyless: boolean;
   timeout_s: number;
+  context_window: number;
   price_in: number;
   price_out: number;
 }
@@ -238,14 +269,24 @@ export interface LlmSettings {
 
 // ---------------------------------------------------------------- 接口
 
-export const api = {
-  createMission: (body: { goal: string; constraints?: Record<string, unknown>; provider_id?: string }) =>
+export const api = {createMission: (body: {
+    goal: string;
+    constraints?: Record<string, unknown>;
+    provider_id?: string;
+    title?: string;
+  }) =>
     request<{ task_id: string; status: string; created_at: string }>("/missions", {
       method: "POST",
       body: JSON.stringify(body),
     }),
 
   getMission: (id: string) => request<MissionDetail>(`/missions/${id}`),
+
+  renameMission: (id: string, title: string) =>
+    request<{ task_id: string; title: string }>(`/missions/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    }),
 
   listMissions: (params: { status?: string; page?: number; page_size?: number } = {}) => {
     const query = new URLSearchParams();
@@ -366,6 +407,21 @@ export const api = {
       body: JSON.stringify({ title }),
     }),
 
+  updateChatSession: (sessionId: string, payload: Partial<Pick<ChatSessionItem,
+    "title" | "pinned" | "provider_id" | "model" | "reasoning_effort">>) =>
+    request<ChatSessionItem>(`/chat/sessions/${sessionId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  chatContext: (sessionId: string) =>
+    request<ChatContext>(`/chat/sessions/${sessionId}/context`),
+
+  chatSettings: () => request<ChatSettings>("/settings/chat"),
+
+  chatSettingsPut: (body: Partial<ChatSettings>) =>
+    request<ChatSettings>("/settings/chat", { method: "PUT", body: JSON.stringify(body) }),
+
   chatDeleteSession: (sessionId: string) =>
     request<any>(`/chat/sessions/${sessionId}`, { method: "DELETE" }),
 
@@ -373,7 +429,12 @@ export const api = {
     request<{ items: ChatMessageItem[]; total: number }>(`/chat/sessions/${sessionId}/messages`),
 
   chatSend: (sessionId: string, content: string) =>
-    request<{ user: ChatMessageItem; assistant: ChatMessageItem; session: ChatSessionDetail }>(
+    request<{
+      user: ChatMessageItem;
+      assistant: ChatMessageItem;
+      session: ChatSessionDetail;
+      context: ChatContext;
+    }>(
       `/chat/sessions/${sessionId}/messages`,
       { method: "POST", body: JSON.stringify({ content }) },
     ),
@@ -417,3 +478,65 @@ export const api = {
   settingsTest: (id: string) =>
     request<any>("/settings/llm/test", { method: "POST", body: JSON.stringify({ id }) }),
 };
+
+// ---------------------------------------------------------------- 聊天流式
+
+export function openChatStream(
+  sessionId: string,
+  content: string,
+  token: string,
+  handlers: {
+    onUser?: (message: ChatMessageItem) => void;
+    onDelta: (text: string) => void;
+    onDone: (payload: { assistant: ChatMessageItem; session: ChatSessionDetail; context: ChatContext }) => void;
+    onError?: (message: string) => void;
+  },
+): () => void {
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const response = await fetch(`${BASE}/chat/sessions/${sessionId}/messages/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ content }),
+        signal: controller.signal,
+      });
+      if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() || "";
+        for (const chunk of chunks) {
+          let event = "message";
+          let data = "";
+          for (const line of chunk.split("\n")) {
+            if (line.startsWith("event: ")) event = line.slice(7).trim();
+            else if (line.startsWith("data: ")) data = line.slice(6);
+          }
+          if (!data) continue;
+          let payload: any;
+          try {
+            payload = JSON.parse(data);
+          } catch {
+            continue;
+          }
+          if (event === "user") handlers.onUser?.(payload as ChatMessageItem);
+          else if (event === "delta") handlers.onDelta(String(payload.text ?? ""));
+          else if (event === "done") handlers.onDone(payload);
+          else if (event === "error") handlers.onError?.(String(payload.message ?? "流式输出失败"));
+        }
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) handlers.onError?.(String(error));
+    }
+  })();
+
+  return () => controller.abort();
+}

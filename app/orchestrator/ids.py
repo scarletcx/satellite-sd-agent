@@ -17,7 +17,8 @@ from app.models import (
 
 
 def _today() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d")
+    """本地日期（个人 agent：按用户时区生成任务/会话编号）。"""
+    return datetime.now().astimezone().strftime("%Y%m%d")
 
 
 def _count(session: Session, model, mission_id: str) -> int:

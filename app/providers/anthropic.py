@@ -30,9 +30,11 @@ class AnthropicProvider:
             headers={"x-api-key": api_key, "anthropic-version": API_VERSION},
         )
 
-    def call(self, system: str, user: str, temperature: float) -> ProviderCallResult:
+    def call(self, system: str, user: str, temperature: float,
+             options: dict | None = None) -> ProviderCallResult:
+        options = options or {}
         body = {
-            "model": self.model,
+            "model": options.get("model") or self.model,
             "max_tokens": self._max_tokens,
             "temperature": temperature,
             "system": system,
@@ -61,3 +63,12 @@ class AnthropicProvider:
             tokens_in=int(usage.get("input_tokens") or 0),
             tokens_out=int(usage.get("output_tokens") or 0),
         )
+
+    def call_stream(self, system: str, user: str, temperature: float,
+                    options: dict | None = None):
+        """Anthropic 暂未接入原生流式：先完整调用，再按块下发（前端体验一致）。"""
+        result = self.call(system, user, temperature, options)
+        text = result.text
+        step = 12
+        for index in range(0, len(text), step):
+            yield text[index:index + step]

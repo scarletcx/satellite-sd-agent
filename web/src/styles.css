@@ -150,3 +150,56 @@ body {
   gap: 6px;
   margin-bottom: 8px;
 }
+
+/* 会话侧栏（仅名称 + 三点菜单） */
+.chat-session-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 10px 7px 12px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.chat-session-row:hover {
+  background: #f5f5f5;
+}
+
+/* 斜杠命令面板 */
+.chat-slash-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 6px;
+  min-width: 280px;
+  background: #fff;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  padding: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  z-index: 10;
+}
+
+.chat-slash-item {
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.chat-slash-item:hover {
+  background: #f5f5f5;
+}
+
+/* 流式光标 */
+.chat-cursor {
+  display: inline-block;
+  margin-left: 2px;
+  color: #1677ff;
+  animation: chat-blink 1s step-end infinite;
+}
+
+@keyframes chat-blink {
+  50% { opacity: 0; }
+}

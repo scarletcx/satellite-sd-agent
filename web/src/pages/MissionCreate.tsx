@@ -49,6 +49,7 @@ export default function MissionCreate() {
       }
       const result = await api.createMission({
         goal: values.goal,
+        title: values.title?.trim() || undefined,
         constraints,
         ...(values.provider_id ? { provider_id: values.provider_id } : {}),
       });
@@ -68,6 +69,13 @@ export default function MissionCreate() {
         输入任务目标与约束，系统将执行「解析 → 检索 → 分解 → 参数 → 计算 → 校验 → 渲染」流程，
         产出可追溯的 Word 方案；未配置模型 Key 时自动使用桩模式。
       </Paragraph>
+      {submitting && (
+        <Alert
+          style={{ marginBottom: 12 }} type="info" showIcon
+          message="正在创建任务并启动流水线…"
+          description="创建后会跳转到执行页；S1 解析与 S2 检索可能需要一些时间，页面会显示进度。"
+        />
+      )}
       <Form form={form} layout="vertical" onFinish={submit} initialValues={{ orbit_type: "SSO" }}>
         {llmMode === "stub" && (
           <Alert
@@ -80,6 +88,9 @@ export default function MissionCreate() {
             allowClear placeholder="自动（按「设置」页的降级链）"
             options={providers}
           />
+        </Form.Item>
+        <Form.Item name="title" label="任务名称（可选）" style={{ maxWidth: 420 }}>
+          <Input placeholder="不填则用任务目标首行（本地时间编号）" maxLength={120} />
         </Form.Item>
         <Form.Item name="goal" label="任务目标" rules={[{ required: true, message: "请输入任务目标" }]}>
           <Input.TextArea rows={3} placeholder="例如：设计一颗 500km SSO 光学遥感小卫星" />

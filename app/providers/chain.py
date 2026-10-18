@@ -26,11 +26,15 @@ STEP_PROMPTS = {
     "S8": "s8_narrative/narrative.v1.md",
     "CHAT_PLAN": "chat_plan/plan.v1.md",
     "CHAT_ANSWER": "chat_answer/answer.v1.md",
+    "CHAT_ANSWER_STREAM": "chat_answer/answer_stream.v1.md",
     "CHAT_SUMMARY": "chat_summary/summary.v1.md",
+    "CHAT_COMPACT": "chat_compact/compact.v1.md",
+    "CHAT_MEMORY": "chat_memory/extract.v1.md",
 }
 STEP_TEMPERATURES = {
     "S1": 0.2, "S2": 0.2, "S3": 0.3, "S4": 0.1, "S7": 0.3, "S8": 0.6,
-    "CHAT_PLAN": 0.3, "CHAT_ANSWER": 0.4, "CHAT_SUMMARY": 0.2,
+    "CHAT_PLAN": 0.3, "CHAT_ANSWER": 0.4, "CHAT_ANSWER_STREAM": 0.4,
+    "CHAT_SUMMARY": 0.2, "CHAT_COMPACT": 0.2, "CHAT_MEMORY": 0.2,
 }
 REPAIR_RETRIES = 2
 
@@ -51,7 +55,7 @@ class ProviderChain:
 
     # ------------------------------------------------------------ 对上层接口
 
-    def chat_json(self, step: str, context: dict) -> tuple[dict, dict]:
+    def chat_json(self, step: str, context: dict, options: dict | None = None) -> tuple[dict, dict]:
         system = self._safety()
         user = self._render(self._load_prompt(step), context)
         last_error = ""
@@ -60,7 +64,8 @@ class ProviderChain:
             prompt = user
             for attempt in range(self.repair_retries + 1):
                 try:
-                    result = provider.call(system, prompt, STEP_TEMPERATURES.get(step, 0.2))
+                    result = provider.call(system, prompt,
+                                           STEP_TEMPERATURES.get(step, 0.2), options)
                 except ProviderError as exc:
                     last_error = f"{provider.name}: {exc}"
                     break  # 供应商级失败 → 换下一家
@@ -84,6 +89,33 @@ class ProviderChain:
                 return payload, usage
 
         raise ProviderError(f"全部模型服务不可用或输出校验失败：{last_error}", provider="chain")
+
+    # -------------------------------------------------------------- 文本流式
+
+    def stream_text(self, step: str, context: dict, options: dict | None = None):
+        """纯文本流式输出（不要求 JSON）。供应商逐个尝试，首个成功者生效。"""
+        system = self._safety()
+        user = self._render(self._load_prompt(step), context)
+        stream_options = {**(options or {}), "json_mode": False}
+        last_error = ""
+
+        for provider in self.providers:
+            if hasattr(provider, "text_stream"):
+                yield from provider.text_stream(step, context)
+                return
+            emitted = False
+            try:
+                for chunk in provider.call_stream(system, user,
+                                                  STEP_TEMPERATURES.get(step, 0.4), stream_options):
+                    emitted = True
+                    yield chunk
+                return
+            except ProviderError as exc:
+                last_error = f"{provider.name}: {exc}"
+                if emitted:
+                    raise
+                continue
+        raise ProviderError(f"全部模型服务不可用（流式）：{last_error}", provider="chain")
 
     # -------------------------------------------------------------- 内部实现
 

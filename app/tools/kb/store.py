@@ -227,6 +227,23 @@ def search(query: str, filters: dict | None = None, top_k: int = 8,
     return response
 
 
+def promote_to_global(doc_id: str) -> dict:
+    """把会话附件提升为全局知识库：移除 chunk 元数据里的 session_id。"""
+    updated = 0
+    with new_session() as session:
+        rows = (session.query(KbChunk)
+                .filter(KbChunk.doc_id == doc_id).all())
+        if not rows:
+            raise KbError(f"语料不存在：{doc_id}")
+        for row in rows:
+            meta = dict(row.meta or {})
+            if meta.pop("session_id", None) is not None:
+                row.meta = meta
+                updated += 1
+        session.commit()
+    return {"doc_id": doc_id, "updated_chunks": updated}
+
+
 def list_documents(module: str | None = None, doc_type: str | None = None,
                    page: int = 1, page_size: int = 20) -> dict:
     with new_session() as session:

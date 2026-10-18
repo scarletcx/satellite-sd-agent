@@ -4,7 +4,7 @@ import {
   Tag, Typography, message,
 } from "antd";
 
-import { api, type LlmSettings, type ProviderSetting } from "../api/client";
+import { api, type ChatSettings, type LlmSettings, type ProviderSetting } from "../api/client";
 
 const { Text, Paragraph } = Typography;
 
@@ -18,6 +18,8 @@ export default function Settings() {
   const [modelsById, setModelsById] = useState<Record<string, string[]>>({});
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState<string>("");
+  const [chatSettings, setChatSettings] = useState<ChatSettings | null>(null);
+  const [savingChat, setSavingChat] = useState(false);
 
   const apply = (data: LlmSettings) => {
     setSettings(data);
@@ -27,6 +29,7 @@ export default function Settings() {
   const load = useCallback(async () => {
     try {
       apply(await api.settingsLlm());
+      setChatSettings(await api.chatSettings());
     } catch (error) {
       message.error(String((error as Error)?.message ?? error));
     }
@@ -53,7 +56,7 @@ export default function Settings() {
     setProviders((prev) => [...prev, {
       id: "", label: "新供应商", protocol: "openai", base_url: "", model: "",
       has_key: false, key_masked: "", json_mode: true, enabled: true, keyless: false,
-      timeout_s: 120, price_in: 0, price_out: 0,
+      timeout_s: 120, context_window: 128000, price_in: 0, price_out: 0,
     }]);
 
   const probe = async (row: EditableProvider, index: number) => {
@@ -124,7 +127,8 @@ export default function Settings() {
         id: item.id, label: item.label, protocol: item.protocol,
         base_url: item.base_url, model: item.model,
         json_mode: item.json_mode, enabled: item.enabled, keyless: item.keyless,
-        timeout_s: item.timeout_s, price_in: item.price_in, price_out: item.price_out,
+        timeout_s: item.timeout_s, context_window: item.context_window,
+        price_in: item.price_in, price_out: item.price_out,
         ...(item.api_key_input !== undefined ? { api_key: item.api_key_input } : {}),
       }));
       apply(await api.settingsLlmPut(payload));
@@ -145,8 +149,64 @@ export default function Settings() {
     }
   };
 
+  const saveChatSettings = async () => {
+    if (!chatSettings) return;
+    setSavingChat(true);
+    try {
+      setChatSettings(await api.chatSettingsPut(chatSettings));
+      message.success("对话上下文设置已保存");
+    } catch (error) {
+      message.error(String((error as Error)?.message ?? error));
+    } finally {
+      setSavingChat(false);
+    }
+  };
+
   return (
     <Space direction="vertical" style={{ width: "100%" }} size="middle">
+      <Card
+        size="small"
+        title="对话与上下文"
+        extra={<Button size="small" type="primary" loading={savingChat}
+          disabled={!chatSettings} onClick={saveChatSettings}>保存</Button>}
+      >
+        <Alert
+          type="info" showIcon style={{ marginBottom: 12 }}
+          message="消息全量保存在本地 SQLite；达到阈值后自动把较早消息折叠为摘要（也可在聊天框输入 /compact 手动压缩）。"
+        />
+        {chatSettings && (
+          <Space wrap size="large">
+            <Space size="small">
+              <span>自动压缩</span>
+              <Switch checked={chatSettings.auto_compact}
+                onChange={(checked) => setChatSettings({ ...chatSettings, auto_compact: checked })} />
+            </Space>
+            <Space size="small">
+              <span>阈值(%)</span>
+              <InputNumber min={20} max={95} value={chatSettings.threshold_pct}
+                onChange={(value) => setChatSettings({ ...chatSettings, threshold_pct: Number(value ?? 80) })} />
+            </Space>
+            <Space size="small">
+              <span>保留最近消息</span>
+              <InputNumber min={2} max={30} value={chatSettings.keep_recent}
+                onChange={(value) => setChatSettings({ ...chatSettings, keep_recent: Number(value ?? 6) })} />
+            </Space>
+            <Space size="small">
+              <span>默认窗口(tokens)</span>
+              <InputNumber min={8000} max={2000000} step={1000} style={{ width: 130 }}
+                value={chatSettings.default_window}
+                onChange={(value) => setChatSettings({ ...chatSettings, default_window: Number(value ?? 128000) })} />
+            </Space>
+            <Space size="small">
+              <span>摘要上限(字)</span>
+              <InputNumber min={300} max={6000} step={100} style={{ width: 110 }}
+                value={chatSettings.summary_max_chars}
+                onChange={(value) => setChatSettings({ ...chatSettings, summary_max_chars: Number(value ?? 1500) })} />
+            </Space>
+          </Space>
+        )}
+      </Card>
+
       <Card
         size="small"
         title={
@@ -178,7 +238,7 @@ export default function Settings() {
       </Card>
 
       {providers.map((row, index) => {
-        const key = row.id || `index-${index}`;
+        const key = `provider-${index}`;
         const configured = settings?.configured[row.id] === "configured";
         return (
           <Card
@@ -190,14 +250,10 @@ export default function Settings() {
                   size="small" checked={row.enabled}
                   onChange={(checked) => update(index, { enabled: checked })}
                 />
-                {row.id ? (
-                  <Text code>{row.id}</Text>
-                ) : (
-                  <Input
-                    size="small" style={{ width: 140 }} placeholder="新 id（小写）"
-                    value={row.id} onChange={(event) => update(index, { id: event.target.value })}
-                  />
-                )}
+                <Input
+                  size="small" style={{ width: 150 }} placeholder="id（小写）"
+                  value={row.id} onChange={(event) => update(index, { id: event.target.value })}
+                />
                 <Input
                   size="small" style={{ width: 200 }} placeholder="显示名称"
                   value={row.label} onChange={(event) => update(index, { label: event.target.value })}
@@ -268,6 +324,10 @@ export default function Settings() {
                 <span>超时(s)</span>
                 <InputNumber size="small" style={{ width: 80 }} min={5} max={600} value={row.timeout_s}
                   onChange={(value) => update(index, { timeout_s: Number(value ?? 120) })} />
+                <span>上下文窗口</span>
+                <InputNumber size="small" style={{ width: 110 }} min={8000} max={2000000} step={1000}
+                  value={row.context_window}
+                  onChange={(value) => update(index, { context_window: Number(value ?? 128000) })} />
                 <span>价格/1K(¥)</span>
                 <InputNumber size="small" style={{ width: 90 }} min={0} step={0.001} value={row.price_in}
                   onChange={(value) => update(index, { price_in: Number(value ?? 0) })} />

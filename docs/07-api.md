@@ -147,6 +147,10 @@
 | D8 | POST | `/chat/sessions/{id}/documents` | 上传会话附件 | multipart；pdf/docx/txt/md/csv；≤20MB |
 | D9 | GET | `/chat/sessions/{id}/documents` | 附件列表 | |
 | D10 | DELETE | `/chat/sessions/{id}/documents/{document_id}` | 删除附件 | 同步清理知识库与向量索引 |
+| D11 | GET | `/chat/sessions/{id}/context` | 上下文用量 | tokens/窗口/百分比/压缩状态 |
+| D12 | POST | `/chat/sessions/{id}/messages/stream` | 流式对话 | SSE：user → delta → done |
+| C8 | GET | `/settings/chat` | 读取上下文设置 | 自动压缩开关、阈值、窗口等 |
+| C9 | PUT | `/settings/chat` | 保存上下文设置 | 保存即生效 |
 
 ---
 
@@ -480,10 +484,11 @@ data: {"gate_id":"g-003","type":"assumption_confirm","param_id":"mass.margin_pct
 
 **D2 会话列表**：`GET {{baseUrl}}/chat/sessions?limit=100` → `{ items: [...], total }`（按 `updated_at` 倒序）
 
-**D3/D4/D5 会话详情 / 重命名 / 删除**：
-- `GET /chat/sessions/{id}` → 会话字段 + `documents[]`
-- `PATCH /chat/sessions/{id}` body `{ "title": "..." }`
+**D3/D4/D5 会话详情 / 更新 / 删除**：
+- `GET /chat/sessions/{id}` → 会话字段 + `documents[]` + `context`
+- `PATCH /chat/sessions/{id}` body 可含 `title` / `pinned` / `provider_id` / `model` / `reasoning_effort`
 - `DELETE /chat/sessions/{id}` → `{ session_id, deleted_messages, deleted_documents }`（附件对应的知识库文档与向量一并删除）
+- `GET /chat/sessions/{id}/context` → 上下文估算与压缩状态；`POST .../messages/stream` → SSE（`user`/`delta`/`done`/`error`）
 
 **D6 消息列表**：`GET /chat/sessions/{id}/messages?limit=300`
 

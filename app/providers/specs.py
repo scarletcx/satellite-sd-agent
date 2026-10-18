@@ -35,6 +35,7 @@ class ProviderSpec:
     enabled: bool = True
     keyless: bool = False             # 本地服务（如 Ollama）无需 Key
     timeout_s: float = 120.0
+    context_window: int = 128000      # 模型上下文窗口（用于使用率与自动压缩）
     price_in: float = 0.0             # 元 / 1K tokens（仅用于成本估算）
     price_out: float = 0.0
 
