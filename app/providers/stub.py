@@ -224,16 +224,23 @@ class StubProvider:
         pending = context.get("pending_mission") or {}
         confirm = any(word in question for word in
                       ("确认创建", "开始设计", "按默认参数创建", "确认开始", "可以开始"))
+        defaults_ok = any(word in question for word in
+                          ("按默认参数", "按照默认参数", "默认参数设计", "用默认参数"))
+        auto_review = any(word in question for word in
+                          ("自动通过", "自动完成审核", "自动审核", "自动确认", "帮我通过",
+                           "评审也帮我", "评审也自动", "自动同意"))
         design_intent = (("设计" in question and ("卫星" in question or "任务" in question))
                          or "辅助我设计" in question or "新建任务" in question)
         param_hint = any(word in question for word in
                          ("轨道", "高度", "寿命", "质量", "载荷", "SSO", "LEO", "GEO", "km", "km"))
 
-        if confirm and pending:
+        if (confirm and pending) or (defaults_ok and design_intent):
+            constraints = dict(pending.get("constraints") or {})
+            constraints.update(StubProvider._parse_constraints(question))
             return {"action": "create_mission",
-                    "goal": pending.get("goal"),
-                    "args": {"constraints": pending.get("constraints") or {},
-                             "title": pending.get("title"), "confirmed": True}}
+                    "goal": pending.get("goal") or question,
+                    "args": {"constraints": constraints, "title": pending.get("title"),
+                             "confirmed": True, "auto_review": auto_review}}
         if design_intent or (pending and param_hint):
             constraints = {**(pending.get("constraints") or {}), **StubProvider._parse_constraints(question)}
             goal = pending.get("goal") or question

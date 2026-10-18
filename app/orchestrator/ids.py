@@ -1,9 +1,9 @@
-"""ID 生成（规则见 docs/03 §8）。演示级实现：按计数递增。"""
+"""ID 生成（规则见 docs/03 §8）：按「当日/当任务已有最大序号 + 1」递增，删除后不复用，避免唯一键冲突。"""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -21,63 +21,73 @@ def _today() -> str:
     return datetime.now().astimezone().strftime("%Y%m%d")
 
 
-def _count(session: Session, model, mission_id: str) -> int:
-    return session.scalar(
-        select(func.count()).select_from(model).where(model.mission_id == mission_id)
-    ) or 0
+def _next_index(ids: list[str], prefix: str) -> int:
+    """取已有编号的最大序号 + 1（编号形如 <prefix><数字>）。"""
+    best = 0
+    offset = len(prefix)
+    for value in ids:
+        suffix = str(value)[offset:]
+        if suffix.isdigit():
+            best = max(best, int(suffix))
+    return best + 1
+
+
+def _scoped_ids(session: Session, model, mission_id: str, prefix: str) -> list[str]:
+    return list(session.scalars(
+        select(model.id).where(model.mission_id == mission_id, model.id.like(f"{prefix}%"))
+    ).all())
 
 
 def next_mission_id(session: Session) -> str:
-    count = session.scalar(
-        select(func.count()).select_from(Mission).where(Mission.id.like(f"t-{_today()}-%"))
-    ) or 0
-    return f"t-{_today()}-{count + 1:03d}"
+    prefix = f"t-{_today()}-"
+    ids = session.scalars(select(Mission.id).where(Mission.id.like(f"{prefix}%"))).all()
+    return f"{prefix}{_next_index(list(ids), prefix):03d}"
 
 
 def next_calc_ids(session: Session, mission_id: str, k: int) -> list[str]:
     """计算记录 ID 为「当日全局序号」（格式 calc-YYYYMMDD-NNNN，跨任务唯一）。"""
-    base = session.scalar(
-        select(func.count()).select_from(CalculationRecord)
-        .where(CalculationRecord.id.like(f"calc-{_today()}-%"))
-    ) or 0
-    return [f"calc-{_today()}-{base + i + 1:04d}" for i in range(k)]
+    prefix = f"calc-{_today()}-"
+    ids = session.scalars(
+        select(CalculationRecord.id).where(CalculationRecord.id.like(f"{prefix}%"))
+    ).all()
+    base = _next_index(list(ids), prefix)
+    return [f"{prefix}{base + i:04d}" for i in range(k)]
 
 
 def next_vr_ids(session: Session, mission_id: str, k: int) -> list[str]:
-    base = _count(session, ValidationResult, mission_id)
-    return [f"vr-{base + i + 1:04d}" for i in range(k)]
+    base = _next_index(_scoped_ids(session, ValidationResult, mission_id, "vr-"), "vr-")
+    return [f"vr-{base + i:04d}" for i in range(k)]
 
 
 def next_gate_id(session: Session, mission_id: str) -> str:
-    base = _count(session, ReviewGate, mission_id)
-    return f"g-{base + 1:03d}"
+    base = _next_index(_scoped_ids(session, ReviewGate, mission_id, "g-"), "g-")
+    return f"g-{base:03d}"
 
 
 def next_assumption_id(session: Session, mission_id: str) -> str:
     from app.models import Assumption
 
-    base = _count(session, Assumption, mission_id)
-    return f"asm-{base + 1:04d}"
+    base = _next_index(_scoped_ids(session, Assumption, mission_id, "asm-"), "asm-")
+    return f"asm-{base:04d}"
 
 
 def next_candidate_ids(session: Session, mission_id: str, k: int) -> list[str]:
-    base = _count(session, SelectionCandidate, mission_id)
-    return [f"sc-{base + i + 1:04d}" for i in range(k)]
+    base = _next_index(_scoped_ids(session, SelectionCandidate, mission_id, "sc-"), "sc-")
+    return [f"sc-{base + i:04d}" for i in range(k)]
 
 
 def next_chat_session_id(session: Session) -> str:
     from app.models import ChatSession
 
-    count = session.scalar(
-        select(func.count()).select_from(ChatSession)
-        .where(ChatSession.id.like(f"cs-{_today()}-%"))
-    ) or 0
-    return f"cs-{_today()}-{count + 1:03d}"
+    prefix = f"cs-{_today()}-"
+    ids = session.scalars(select(ChatSession.id).where(ChatSession.id.like(f"{prefix}%"))).all()
+    return f"{prefix}{_next_index(list(ids), prefix):03d}"
 
 
 def next_chat_document_id(session: Session, session_id: str) -> str:
-    base = session.scalar(
-        select(func.count()).select_from(ChatDocument)
-        .where(ChatDocument.session_id == session_id)
-    ) or 0
-    return f"cd-{base + 1:04d}"
+    prefix = "cd-"
+    ids = session.scalars(
+        select(ChatDocument.id).where(ChatDocument.session_id == session_id,
+                                      ChatDocument.id.like(f"{prefix}%"))
+    ).all()
+    return f"{prefix}{_next_index(list(ids), prefix):04d}"

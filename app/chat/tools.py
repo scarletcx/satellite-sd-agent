@@ -82,6 +82,32 @@ def execute(action: str, params: dict, session_id: str) -> dict:
         raise ToolError(str(exc)) from exc
 
 
+def _start_auto_review(task_id: str, timeout_s: float = 300.0) -> None:
+    """创建任务后按用户要求自动通过评审：等待门禁出现，逐个执行一键确认。"""
+    import threading
+    import time
+
+    from app.models import Mission
+
+    def runner() -> None:
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            with new_session() as session:
+                mission = session.get(Mission, task_id)
+                status = mission.status if mission else None
+            if status in (None, "succeeded", "failed", "canceled"):
+                return
+            if status == "awaiting_gate":
+                try:
+                    review_service.accept_all(task_id, reviewer="chat-agent",
+                                              comment="聊天内自动通过评审")
+                except Exception:  # noqa: BLE001 - 自动评审失败时留给人工处理
+                    return
+            time.sleep(0.5)
+
+    threading.Thread(target=runner, daemon=True, name=f"auto-review-{task_id}").start()
+
+
 def _execute(action: str, params: dict, session_id: str) -> dict:
     if action == "clarify":
         message = str(_param(params, "message") or "").strip()
@@ -128,10 +154,15 @@ def _execute(action: str, params: dict, session_id: str) -> dict:
             title=str(title) if title else None,
         )
         _clear_pending(session_id)
+        auto_review = bool(_param(params, "auto_review"))
+        if auto_review:
+            _start_auto_review(result["task_id"])
+        suffix = "；已开启自动评审（输入门禁与超限参数会按豁免自动通过）" if auto_review else ""
         return {
             "content": (f"已创建任务 {result['task_id']}「{result['title']}」，"
-                        f"正在后台执行。可在「设计任务」页查看：/missions/{result['task_id']}"),
-            "meta": {"tool": "create_mission", "task_id": result["task_id"]},
+                        f"正在后台执行{suffix}。可在「设计任务」页查看：/missions/{result['task_id']}"),
+            "meta": {"tool": "create_mission", "task_id": result["task_id"],
+                     "auto_review": auto_review},
         }
 
     if action == "list_missions":

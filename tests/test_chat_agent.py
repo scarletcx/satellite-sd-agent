@@ -133,6 +133,30 @@ def test_chat_design_flow_requires_confirmation(client):
     assert after == before + 1
 
 
+def test_chat_default_mission_with_auto_review(client):
+    """“按默认参数设计 + 评审也自动通过”应创建任务并自动完成评审（含门禁豁免）。"""
+    session_id = _new_session(client)
+    reply = client.post(f"/api/v1/chat/sessions/{session_id}/messages", headers=HEADERS,
+                        json={"content": "帮我按照默认参数设计一颗通信卫星，人工评审也帮我自动通过一下"})
+    assert reply.status_code == 200, reply.text
+    payload = reply.json()["assistant"]
+    assert "已创建任务" in payload["content"], payload["content"]
+    assert payload["meta"]["tool"]["auto_review"] is True
+    task_id = payload["meta"]["tool"]["task_id"]
+
+    detail: dict = {}
+    deadline = time.time() + 15
+    while time.time() < deadline:
+        detail = client.get(f"/api/v1/missions/{task_id}", headers=HEADERS).json()
+        if detail["status"] in ("succeeded", "failed"):
+            break
+        time.sleep(0.1)
+    assert detail["status"] == "succeeded", detail
+    review = client.get(f"/api/v1/missions/{task_id}/parameters", headers=HEADERS).json()
+    statuses = {item["status"] for item in review["items"]}
+    assert "draft" not in statuses and "needs_review" not in statuses, statuses
+
+
 def test_streaming_endpoint_emits_deltas(client):
     session_id = _new_session(client)
     response = client.post(f"/api/v1/chat/sessions/{session_id}/messages/stream",
