@@ -12,6 +12,7 @@ dependencies = [
   "pymupdf>=1.24",
   "python-multipart>=0.0.9",
   "mammoth>=1.8",
+  "skyfield>=1.49",
 ]
 
 [project.optional-dependencies]

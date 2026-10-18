@@ -179,12 +179,13 @@
 |---|---|---|
 | C1~C3 预算 | `app/tools/calc/budgets.py` | ✅ 已实现 |
 | C4 链路 | `app/tools/calc/link.py` | ✅ 已实现 |
-| C5 轨道覆盖 | `app/tools/calc/orbit.py` | ✅ 已实现（简化模型；库交叉验证待接） |
+| C5 轨道覆盖 | `app/tools/calc/orbit.py` | ✅ 已实现（解析简化模型 + skyfield/SGP4 交叉验证，容差 0.5% / 2%） |
 | C6 太阳翼 | `app/tools/calc/eps.py` | ✅ 已实现 |
 | C7 ADCS 粗算 | `app/tools/calc/adcs.py` | 已实现（adcs-v1：光压扰动 → 轮组角动量需求 → 磁力矩器磁矩，量级估算） |
 | 常量与换算 | `app/tools/calc/constants.py` · `units.py` | ✅ 已实现 |
 | V1 / V3 / V4 / V7 | `app/validation/rules.py` | ✅ V1 含引用完整性与未确认输入拦截；V3 覆盖质量/功耗/数据量闭合与链路余量阈值；V4 含质量与功耗上限（人工放行 → warn 豁免）；V7 warn 级 + 输入门禁 |
 | V2 独立重算 | `app/validation/recompute.py` | ✅ 六类计算记录全部重算比对（容差 0.5%） |
+| V2 轨道交叉验证 | `app/validation/orbit_crosscheck.py` | ✅ skyfield（SGP4）独立复算周期与交点退行（容差 0.5% / 2%；实测残差 ≈0.06% / ≈0.2%；未安装库时降级为 warn） |
 | V5 历史对比 | `app/validation/history.py` + `make reference` | ✅ 基于 UCS 公开统计（LEO 10-500kg，P10~P90） |
 | V6 敏感性 | `app/validation/sensitivity.py` | ✅ 质量 +10% / 链路 +2 dB 两类扰动 |
 

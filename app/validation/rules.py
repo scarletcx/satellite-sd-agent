@@ -11,6 +11,7 @@ from typing import Any
 
 from app.tools.calc.units import UNIT_ENUM
 from app.validation.history import v5_history
+from app.validation.orbit_crosscheck import v2_orbit_crosscheck
 from app.validation.recompute import v2_recompute
 from app.validation.sensitivity import v6_sensitivity
 
@@ -251,6 +252,7 @@ def run_validation(params: list[dict], constraints: dict,
     findings += v1_checks(params, refs)
     if records is not None:
         findings += v2_recompute(records)
+        findings += v2_orbit_crosscheck(records)
     findings += v3_mass_closure(values)
     findings += v3_mass_margin(values)
     findings += v3_power_closure(values, inputs)
