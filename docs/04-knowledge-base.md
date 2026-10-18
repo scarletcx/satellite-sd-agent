@@ -106,6 +106,33 @@
 - 与 [08 存储](./08-storage.md) 的关系：manifest ↔ `kb_chunks` 级联；删除走 B4（审计）
 - 一致性检查：`make check` 校验 manifest 与 DB 计数一致
 
+## 9.1 后端切换（已实现）与 pgvector 落地步骤
+
+**Embedding 后端切换（配置级，代码已支持）**
+
+```bash
+# 开发/测试（默认，零依赖）
+EMBEDDING_BACKEND=hashing
+
+# bge-m3（1024 维，语义检索）
+pip install sentence-transformers
+export EMBEDDING_BACKEND=bge-m3
+export EMBEDDING_MODEL=BAAI/bge-m3      # 可选
+```
+
+- 两种后端维度均为 1024；切换后需**重新摄取**语料
+- 维度不一致的旧 chunk 在检索时会被跳过，响应里带 `dim_mismatch` 计数与提示，不会拿哈希向量去比语义向量
+- `GET /kb/stats` 返回当前 `embedding_model` / `embedding_dim` / `embedding_backend`
+
+**pgvector 落地（需 Postgres 环境，代码接口已预留）**
+
+1. 启动 Postgres 16 并 `CREATE EXTENSION IF NOT EXISTS vector;`
+2. 按 [08 §3](./08-storage.md) 将 `kb_chunks.embedding` 改为 `vector(1024)`，建 HNSW 索引（`vector_cosine_ops`）
+3. 检索实现从「SQLite JSON 全量扫描」换成 `ORDER BY embedding <=> :query LIMIT k`（`store.search` 对外返回结构不变）
+4. 迁移脚本建议：`scripts/migrate_pgvector.py`（读 SQLite → 重算/复用向量 → 写 Postgres），纳入 `make check`
+
+当前状态：第 1~3 步未执行（本机无 Postgres）；SQLite 全量扫描在万级 chunk 内可用。
+
 ## 10. 关键取舍
 
 | 决策 | 备选 | 理由 | ADR |

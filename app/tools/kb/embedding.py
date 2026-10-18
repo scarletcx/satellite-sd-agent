@@ -1,17 +1,22 @@
 """Embedding 适配层（docs/04 §4）。
 
-开发版：HashingEmbedder（字符 n-gram 哈希，确定性、零依赖、可离线）——保证链路可跑、测试可复现。
-目标版：bge-m3（1024 维，sentence-transformers）；接口不变，替换 get_embedder 即可（ADR-0002）。
+两个后端，接口一致，切换只看环境变量：
+- `EMBEDDING_BACKEND=hashing`（默认）：字符 n-gram 哈希，零依赖、确定性、可离线 —— 开发与测试用；
+- `EMBEDDING_BACKEND=bge-m3`：sentence-transformers 加载 `EMBEDDING_MODEL`（默认 BAAI/bge-m3，1024 维）。
+
+两者维度同为 1024，便于平滑切换；跨后端混用会在检索时报维度不一致（store 层会明确提示）。
 """
 from __future__ import annotations
 
 import hashlib
 import math
+import os
 import re
 from typing import Protocol
 
 DIM = 1024
 _TOKEN_RE = re.compile(r"[A-Za-z0-9]+|[\u4e00-\u9fff]+")
+DEFAULT_MODEL = "BAAI/bge-m3"
 
 
 def tokens(text: str) -> list[str]:
@@ -55,11 +60,55 @@ class HashingEmbedder:
         return vector
 
 
-_embedder = HashingEmbedder()
+class SentenceTransformerEmbedder:
+    """bge-m3 / 任意 sentence-transformers 模型（按需安装，首次加载会下载权重）。"""
+
+    def __init__(self, model_name: str = DEFAULT_MODEL):
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError as exc:  # pragma: no cover —— 依赖可选
+            raise RuntimeError(
+                "未安装 sentence-transformers，无法启用 bge-m3 后端："
+                "请先执行 pip install sentence-transformers（首次运行需联网下载模型权重），"
+                "或把 EMBEDDING_BACKEND 切回 hashing。"
+            ) from exc
+        self._model = SentenceTransformer(model_name)
+        self.name = f"sentence-transformers:{model_name}"
+        self.dim = int(self._model.get_sentence_embedding_dimension())
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        vectors = self._model.encode(list(texts), normalize_embeddings=True,
+                                     show_progress_bar=False)
+        return [list(map(float, vector)) for vector in vectors]
 
 
-def get_embedder() -> HashingEmbedder:
-    return _embedder  # TODO(bge-m3)：接入 sentence-transformers 后替换
+_embedder: Embedder | None = None
+
+
+def resolve_backend() -> str:
+    return (os.getenv("EMBEDDING_BACKEND") or "hashing").strip().lower()
+
+
+def build_embedder(backend: str | None = None) -> Embedder:
+    backend = (backend or resolve_backend()).lower()
+    if backend in ("hashing", "hash", "dev"):
+        return HashingEmbedder()
+    if backend in ("bge-m3", "bge_m3", "sentence-transformers", "st"):
+        return SentenceTransformerEmbedder(os.getenv("EMBEDDING_MODEL") or DEFAULT_MODEL)
+    raise ValueError(f"未知的 EMBEDDING_BACKEND：{backend!r}（可选：hashing / bge-m3）")
+
+
+def get_embedder() -> Embedder:
+    global _embedder
+    if _embedder is None:
+        _embedder = build_embedder()
+    return _embedder
+
+
+def reset_embedder() -> None:
+    """测试或运行期切换后端后调用（重置缓存）。"""
+    global _embedder
+    _embedder = None
 
 
 def cosine(a: list[float], b: list[float]) -> float:

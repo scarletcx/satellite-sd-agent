@@ -2,6 +2,9 @@
 
 开发版：向量以 JSON 列表存于 SQLite，Python 内计算余弦（全量扫描，万级 chunk 可用）；
 目标版：pgvector + HNSW（docs/08），对外接口不变。
+
+检索时校验向量维度：语料由不同 embedding 后端写入时，维度不一致的 chunk 会被跳过并计数，
+避免拿哈希向量去比语义向量。
 """
 from __future__ import annotations
 
@@ -15,7 +18,7 @@ from sqlalchemy import func, select
 from app.db import new_session
 from app.models import AppMeta, AuditLog, CorpusManifest, KbChunk
 from app.tools.kb.chunking import chunk_text
-from app.tools.kb.embedding import cosine, get_embedder, tokens
+from app.tools.kb.embedding import cosine, get_embedder, resolve_backend, tokens
 from app.tools.kb.parsing import parse_file
 
 MODULES = {"system", "power", "ttc", "data", "adcs", "orbit", "payload", "risk", "other"}
@@ -125,6 +128,8 @@ def ingest_file(
                         "license": license,
                         "source_url": source_url,
                         "page": page_number,
+                        "embedding_model": embedder.name,
+                        "embedding_dim": len(vector),
                     },
                 ))
         if count == 0:
@@ -146,6 +151,7 @@ def search(query: str, filters: dict | None = None, top_k: int = 8) -> dict:
     embedder = get_embedder()
     query_vector = embedder.embed([query])[0]
     query_tokens = set(tokens(query))
+    dim_mismatch = 0
 
     with new_session() as session:
         manifests = {m.doc_id: m for m in session.scalars(select(CorpusManifest)).all()}
@@ -156,7 +162,11 @@ def search(query: str, filters: dict | None = None, top_k: int = 8) -> dict:
             meta = dict(row.meta or {})
             if not _match_filters(meta, filters):
                 continue
-            similarity = cosine(query_vector, list(row.embedding or []))
+            vector = list(row.embedding or [])
+            if len(vector) != len(query_vector):
+                dim_mismatch += 1
+                continue
+            similarity = cosine(query_vector, vector)
             keyword = _keyword_score(query_tokens, set(tokens(row.content)))
             score = VEC_WEIGHT * similarity + KW_WEIGHT * keyword
             if score >= SCORE_THRESHOLD:
@@ -184,8 +194,12 @@ def search(query: str, filters: dict | None = None, top_k: int = 8) -> dict:
                 },
             })
 
-    return {"results": results, "took_ms": int((time.perf_counter() - started) * 1000),
-            "no_evidence": not results}
+    response = {"results": results, "took_ms": int((time.perf_counter() - started) * 1000),
+                "no_evidence": not results, "dim_mismatch": dim_mismatch}
+    if dim_mismatch and not results:
+        response["note"] = (f"{dim_mismatch} 个 chunk 的向量维度与当前 embedding 后端不一致"
+                            "（可能来自另一个后端）；请用当前后端重新摄取，或切回原后端。")
+    return response
 
 
 def list_documents(module: str | None = None, doc_type: str | None = None,
@@ -229,10 +243,13 @@ def stats() -> dict:
         documents = session.scalar(select(func.count()).select_from(CorpusManifest)) or 0
         chunks = session.scalar(select(func.count()).select_from(KbChunk)) or 0
         last = session.scalar(select(func.max(CorpusManifest.fetched_at)))
+        embedder = get_embedder()
         return {
             "documents": documents,
             "chunks": chunks,
             "corpus_version": _corpus_version(session),
-            "embedding_model": f"{get_embedder().name}（开发版，bge-m3 待接入）",
+            "embedding_model": embedder.name,
+            "embedding_dim": embedder.dim,
+            "embedding_backend": resolve_backend(),
             "last_ingest_at": last.isoformat() if last else None,
         }
