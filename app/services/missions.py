@@ -113,3 +113,49 @@ def rename_mission(task_id: str, title: str) -> dict:
         row.updated_at = datetime.now(timezone.utc)
         session.commit()
         return {"task_id": row.id, "title": row.title}
+
+
+def delete_mission(task_id: str, *, reviewer: str = "engineer") -> dict:
+    """删除任务及其全部关联数据（参数/计算/校验/假设/门禁/选型/审计）与制品目录。"""
+    import shutil
+
+    from app.models import (
+        Assumption,
+        AuditLog,
+        CalculationRecord,
+        DesignParameter,
+        ReviewGate,
+        SelectionCandidate,
+        ValidationResult,
+    )
+    from app.orchestrator.events import bus
+    from app.tracing import task_dir
+
+    with new_session() as session:
+        row = session.get(Mission, task_id)
+        if row is None:
+            raise MissionError(f"任务不存在：{task_id}", not_found=True)
+        if row.status in ("queued", "running"):
+            raise MissionError("任务正在执行，请先取消再删除")
+
+        removed = {}
+        for model, name in ((DesignParameter, "parameters"),
+                            (CalculationRecord, "calculations"),
+                            (ValidationResult, "validations"),
+                            (Assumption, "assumptions"),
+                            (ReviewGate, "gates"),
+                            (SelectionCandidate, "candidates")):
+            removed[name] = (session.query(model)
+                             .filter(model.mission_id == task_id)
+                             .delete(synchronize_session=False))
+        session.add(AuditLog(
+            entity="mission", entity_id=task_id, field="delete",
+            before={"status": row.status, "title": row.title or row.goal},
+            who=reviewer, why="A17 删除任务",
+        ))
+        session.delete(row)
+        session.commit()
+
+    shutil.rmtree(task_dir(task_id), ignore_errors=True)
+    bus.forget(task_id)
+    return {"task_id": task_id, "deleted": True, "removed": removed}

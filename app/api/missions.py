@@ -238,6 +238,23 @@ def rename_mission(mission_id: str, body: MissionRenameBody,
         api_error(400, "SCHEMA_INVALID", str(exc), {"field": "title"})
 
 
+# ---------------------------------------------------------------- A17 删除任务
+
+
+@router.delete("/missions/{mission_id}")
+def delete_mission(mission_id: str, confirm: bool = Query(default=False),
+                   _: None = Depends(require_token)) -> dict:
+    """删除任务及关联数据（参数/计算/校验/假设/门禁/选型）与制品目录。"""
+    if not confirm:
+        api_error(400, "SCHEMA_INVALID", "删除任务需要 confirm=true", {"field": "confirm"})
+    try:
+        return mission_service.delete_mission(mission_id)
+    except mission_service.MissionError as exc:
+        if exc.not_found:
+            api_error(404, "MISSION_NOT_FOUND", str(exc), {"task_id": mission_id})
+        api_error(409, "STATE_CONFLICT", str(exc), {"task_id": mission_id})
+
+
 # ---------------------------------------------------------------- A4 SSE
 
 

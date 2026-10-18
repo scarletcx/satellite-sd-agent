@@ -121,6 +121,29 @@ def test_context_settings_default_and_command_removed(client):
     assert "未知命令" in reply.json()["assistant"]["content"]
 
 
+def test_delete_mission_removes_related_data(client):
+    task_id = _create(client)
+    _wait(client, task_id)
+    canceled = client.post(f"/api/v1/missions/{task_id}/cancel", headers=HEADERS)
+    assert canceled.status_code == 200, canceled.text
+
+    refused = client.delete(f"/api/v1/missions/{task_id}", headers=HEADERS)
+    assert refused.status_code == 400, refused.text
+
+    deleted = client.delete(f"/api/v1/missions/{task_id}?confirm=true", headers=HEADERS)
+    assert deleted.status_code == 200, deleted.text
+    payload = deleted.json()
+    assert payload["deleted"] is True
+    assert payload["removed"]["parameters"] >= 1
+    assert payload["removed"]["gates"] >= 1
+
+    assert client.get(f"/api/v1/missions/{task_id}", headers=HEADERS).status_code == 404
+    assert all(item["task_id"] != task_id
+               for item in client.get("/api/v1/missions", headers=HEADERS).json()["items"])
+    assert client.delete(f"/api/v1/missions/{task_id}?confirm=true",
+                         headers=HEADERS).status_code == 404
+
+
 def test_accept_all_rounds_through_new_gate(client):
     """一键确认应在一次调用内处理输入门禁，以及随后出现的新校验门禁（如质量超限）。"""
     task_id = _create(client, mass_limit=70)

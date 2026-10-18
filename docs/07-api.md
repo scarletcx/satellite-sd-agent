@@ -125,7 +125,8 @@
 | A13 | GET | `/missions/{id}/document/preview` | Word 在线预览 | docx → HTML（mammoth），前端直接渲染 |
 | A14 | GET/POST | `/missions/{id}/assumptions[/{asm_id}/review]` | 假设台账与确认 | 未确认假设阻断出稿（输入门禁） |
 | A15 | GET | `/missions/{id}/candidates` | 选型候选清单 | 示例选型库规则匹配（第 10 章数据源） |
-| A16 | POST | `/missions/{id}/reviews/accept-all` | 一键确认全部待处理项 | 草案输入/假设/待评审参数（含超限豁免） |
+| A16 | POST | `/missions/{id}/reviews/accept-all` | 一键确认全部待处理项 | 草案输入/假设/待评审参数（含超限豁免，最多 3 轮） |
+| A17 | DELETE | `/missions/{id}` | 删除任务 | 级联删除参数/计算/校验/假设/门禁/选型与制品目录（需 confirm） |
 | B1 | POST | `/kb/search` | 检索调试 | 混合检索 |
 | B2 | POST | `/kb/ingest` | 语料摄取 | 解析 → 切分 → 向量入库 |
 | B3 | GET | `/kb/documents` | 语料列表 | 分页 |
@@ -490,6 +491,23 @@ data: {"gate_id":"g-003","type":"assumption_confirm","param_id":"mass.margin_pct
 - **A8 补充**：`accept` 分组草案（`input.*`）可通过 `edited_payload`（JSON）修改整组设计输入，
   后端按对应分组的输入模型校验；`reject` 参数或假设会把任务置为 `failed`（`REVIEW_REJECTED`），
   不再停留在门禁。
+
+### A17 删除任务
+
+- **请求**：`DELETE {{baseUrl}}/missions/t-20261005-001?confirm=true`
+- **业务逻辑**：删除任务行及其关联数据（设计参数、计算记录、校验结果、假设、门禁、选型候选），
+  写入审计日志（`entity="mission"`, `field="delete"`），删除制品目录 `artifacts/<task_id>/`，
+  并清理该任务的内存事件历史（避免任务号复用后重放旧事件）。
+- **约束**：`queued` / `running` 状态不允许删除（先 `A5` 取消）；未带 `confirm=true` 返回 400。
+- **响应**：
+
+```json
+{ "task_id": "t-20261005-001", "deleted": true,
+  "removed": { "parameters": 42, "calculations": 7, "validations": 12,
+               "assumptions": 3, "gates": 2, "candidates": 0 } }
+```
+
+- **错误**：404 `MISSION_NOT_FOUND`；409 `STATE_CONFLICT`（任务执行中）；400 `SCHEMA_INVALID`（缺 confirm）。
 
 ## 3.5 个人 agent 会话接口（D1~D10）
 

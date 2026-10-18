@@ -40,5 +40,10 @@ class EventBus:
         """断线重放：返回 id 大于 last_event_id 的历史事件（顺序与发布一致）。"""
         return [item for item in self._history.get(task_id, []) if item["id"] > last_event_id]
 
+    def forget(self, task_id: str) -> None:
+        """任务删除时清理内存事件，避免任务号复用后重放旧事件。"""
+        self._history.pop(task_id, None)
+        self._seq.pop(task_id, None)
+
 
 bus = EventBus()

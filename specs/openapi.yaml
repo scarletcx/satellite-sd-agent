@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: AI 卫星总体设计助手 API
-  version: 0.7.1
+  version: 0.7.2
   description: |
     由 `docs/07-api.md`（v0.2 细化版）生成，用途：**Apifox / Postman 直接导入进行手动测试**。
     - 本地 Base URL：`http://127.0.0.1:8000/api/v1`
@@ -136,6 +136,33 @@ paths:
                 updated_at: '2026-10-05T09:04:10Z'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      operationId: deleteMission
+      tags: [Missions]
+      summary: 删除任务（A17）
+      description: 级联删除参数/计算/校验/假设/门禁/选型与制品目录；queued/running 需先取消。
+      parameters:
+        - name: confirm
+          in: query
+          required: true
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: 已删除
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id: { type: string }
+                  deleted: { type: boolean }
+                  removed:
+                    type: object
+                    additionalProperties: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /missions/{id}/events:
     parameters:

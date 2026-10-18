@@ -299,6 +299,11 @@ export const api = {createMission: (body: {
     );
   },
 
+  deleteMission: (id: string) =>
+    request<{ task_id: string; deleted: boolean; removed: Record<string, number> }>(
+      `/missions/${id}?confirm=true`, { method: "DELETE" },
+    ),
+
   cancelMission: (id: string) =>
     request<{ task_id: string; status: string }>(`/missions/${id}/cancel`, { method: "POST" }),
 

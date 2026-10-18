@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Badge, Button, Card, Input, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
+import { Badge, Button, Card, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 
 import { ApiError, api, type MissionSummary } from "../api/client";
@@ -67,6 +67,16 @@ export default function MissionList() {
     }
   };
 
+  const removeMission = async (item: MissionSummary) => {
+    try {
+      await api.deleteMission(item.task_id);
+      message.success(`已删除任务 ${item.task_id}`);
+      await load();
+    } catch (error) {
+      if (error instanceof ApiError) message.error(`[${error.code}] ${error.message}`);
+    }
+  };
+
   const columns: ColumnsType<MissionSummary> = [
     {
       title: "任务号", dataIndex: "task_id", width: 150,
@@ -91,11 +101,20 @@ export default function MissionList() {
       render: (value: string) => formatTime(value),
     },
     {
-      title: "操作", width: 160,
+      title: "操作", width: 210,
       render: (_, record) => (
         <Space size={0}>
           <Button size="small" type="link" onClick={() => navigate(`/missions/${record.task_id}`)}>查看</Button>
           <Button size="small" type="link" onClick={() => openRename(record)}>重命名</Button>
+          <Popconfirm
+            title={`删除任务 ${record.task_id}？`}
+            description="将删除任务、参数、计算记录、校验结果与文档制品，无法恢复。"
+            okText="删除" okButtonProps={{ danger: true }} cancelText="取消"
+            onConfirm={() => removeMission(record)}
+          >
+            <Button size="small" type="link" danger
+              disabled={["queued", "running"].includes(record.status)}>删除</Button>
+          </Popconfirm>
         </Space>
       ),
     },

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   Alert, Badge, Button, Card, Descriptions, Input, InputNumber, List, Modal, Popconfirm,
   Progress, Radio, Select, Space, Spin, Table, Tabs, Tag, Timeline, Typography, message,
@@ -58,6 +58,7 @@ function summarizeEvent(event: string, data: any): string {
 
 export default function MissionDetail() {
   const { taskId = "" } = useParams();
+  const navigate = useNavigate();
   const [detail, setDetail] = useState<MissionDetailData | null>(null);
   const [params, setParams] = useState<ParameterSummary[]>([]);
   const [report, setReport] = useState<CheckReport | null>(null);
@@ -662,6 +663,23 @@ export default function MissionDetail() {
               </Popconfirm>
             )}
             <Button size="small" onClick={load}>刷新</Button>
+            <Popconfirm
+              title="删除该任务？"
+              description="将删除任务、参数、计算记录、校验结果与文档制品，无法恢复。"
+              okText="删除" okButtonProps={{ danger: true }} cancelText="取消"
+              onConfirm={async () => {
+                try {
+                  await api.deleteMission(taskId);
+                  message.success("任务已删除");
+                  navigate("/missions");
+                } catch (error) {
+                  if (error instanceof ApiError) message.error(`[${error.code}] ${error.message}`);
+                }
+              }}
+            >
+              <Button danger size="small"
+                disabled={["queued", "running"].includes(detail.status)}>删除任务</Button>
+            </Popconfirm>
           </Space>
         }
       >
