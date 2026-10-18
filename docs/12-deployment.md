@@ -14,12 +14,13 @@
 
 | 组件 | 版本 / 形态 | 说明 |
 |---|---|---|
-| Python | 3.11+（uv 管理） | `uv sync` 安装依赖 |
-| Node.js | 20+（pnpm） | 前端构建 / dev |
-| Postgres | 16 + pgvector（镜像 `pgvector/pgvector:pg16`） | docker compose |
-| 后端 | FastAPI（uvicorn，本地运行） | `make up` 启动 |
-| 前端 | Vite dev / 静态构建 | `pnpm dev` |
-| Embedding | bge-m3（sentence-transformers 本地） | 首启加载，约需显存/内存 1~2GB |
+| Python | 3.11+ | venv + pip（`make install`） |
+| Node.js | 20+ | 前端构建 / dev |
+| 数据库 | **SQLite（默认，单文件 `dev.db`）+ sqlite-vec** | 个人本地 agent 无需 Docker（ADR-0007） |
+| Postgres（可选） | 16 + pgvector（镜像 `pgvector/pgvector:pg16`） | 仅企业部署备选 |
+| 后端 | FastAPI（uvicorn，本地运行） | `make run` 启动 |
+| 前端 | Vite dev / 静态构建 | `npm run dev` |
+| Embedding | 默认 hashing（零依赖）；可选 bge-m3（sentence-transformers） | `EMBEDDING_BACKEND=bge-m3` |
 
 ## 2. 配置与密钥（`.env` 全表）
 

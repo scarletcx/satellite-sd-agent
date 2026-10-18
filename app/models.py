@@ -169,3 +169,42 @@ class AppMeta(Base):
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str] = mapped_column(Text)
+
+
+class ChatSession(Base):
+    """个人 agent 会话（本地 SQLite；无服务端账号体系）。"""
+
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)  # cs-YYYYMMDD-NNN
+    title: Mapped[str] = mapped_column(String(120), default="新会话")
+    summary: Mapped[str] = mapped_column(Text, default="")          # 长期记忆：滚动摘要
+    archived: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class ChatMessage(Base):
+    """短期记忆：按会话保存的消息，前端直接读取渲染。"""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(32), index=True)
+    role: Mapped[str] = mapped_column(String(16))  # user / assistant / system
+    content: Mapped[str] = mapped_column(Text)
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)  # citations / action / attachments
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class ChatDocument(Base):
+    """会话附件：指向知识库文档（chunk 存在 kb_chunks，向量在 sqlite-vec 索引）。"""
+
+    __tablename__ = "chat_documents"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)  # cd-NNNN（会话内序号）
+    session_id: Mapped[str] = mapped_column(String(32), index=True)
+    doc_id: Mapped[str] = mapped_column(String(64))
+    filename: Mapped[str] = mapped_column(String(200))
+    chunks: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)

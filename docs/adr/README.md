@@ -25,16 +25,17 @@
 |---|---|---|---|---|
 | [0001](./0001-tech-stack.md) | 技术栈与编排方式 | 接受 | 2026-10-05 | [02](../02-overall-design.md) · [05](../05-agent-orchestration.md) |
 | [0002](./0002-llm-services.md) | LLM 服务与嵌入模型 | 接受 | 2026-10-05 | [05](../05-agent-orchestration.md) · [12](../12-deployment.md) |
-| [0003](./0003-storage.md) | 存储选型（关系型 + 向量） | 接受 | 2026-10-05 | [08](../08-storage.md) |
+| [0003](./0003-storage.md) | 存储选型（关系型 + 向量） | 被 0007 取代（企业部署备选保留） | 2026-10-05 | [08](../08-storage.md) |
 | [0004](./0004-orbit-computation.md) | 轨道与覆盖计算路线 | 接受 | 2026-10-05 | [06](../06-calculation-verification.md) |
 | [0005](./0005-doc-engine.md) | Word 模板引擎 | 接受 | 2026-10-05 | [10](../10-doc-generation.md) |
 | [0006](./0006-llm-provider-registry.md) | LLM 供应商注册表与运行时设置 | 接受 | 2026-10-06 | [0002](./0002-llm-services.md) · [07](../07-api.md) |
+| [0007](./0007-personal-agent.md) | 个人本地 agent（SQLite 记忆 + sqlite-vec + LangGraph） | 接受 | 2026-10-18 | [02](../02-overall-design.md) · [08](../08-storage.md) · [09](../09-frontend.md) |
 
 ## 待记录清单
 
 | # | 主题 | 触发时机 |
 |---|---|---|
 | 1 | 许可证策略：AGPL / GPL 项目如何参考（隔离目录、不复制代码） | 首次引入第三方代码时 |
-| 2 | 切分与检索参数定案（chunk 大小 / 权重 / HNSW 参数） | [04](../04-knowledge-base.md) 实验完成后 |
-| 3 | 交叉验证库选定（brahe / tudatpy / skyfield 三选一） | [06](../06-calculation-verification.md) 开发期对拍后 |
-| 4 | 更换向量库 / 存储（如发生） | 触发时 |
+| 2 | 切分与检索参数定案（chunk 大小 / 权重 / 阈值 / sqlite-vec 召回数） | [04](../04-knowledge-base.md) 实验完成后 |
+| 3 | 模型调用计费与配额策略（个人版预算守卫细化） | 接入更多供应商后 |
+| 4 | 对话记忆压缩策略（摘要频率 / 长度上限） | 长会话实测后 |

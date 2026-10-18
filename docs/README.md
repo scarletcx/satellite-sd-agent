@@ -22,7 +22,7 @@
 | 13 | [安全与提示注入防护](./13-security.md) | P1 | **细化** | 防护实现、注入样本、审计示例 |
 | 14 | [术语表](./14-glossary.md) | P2 | **细化** | 38 条，约束 Prompt 与数据模型 |
 | 15 | [演示脚本](./15-demo-script.md) | P1 | **细化** | 分钟级时间轴、回退链、彩排清单 |
-| ADR | [决策记录](./adr/README.md) | — | 持续 | 0001~0005 已记录 |
+| ADR | [决策记录](./adr/README.md) | — | 持续 | 0001~0007 已记录 |
 
 参考资料（外部素材）：[materials.md](./materials.md) · [collection-checklist.md](./collection-checklist.md)
 
@@ -57,7 +57,8 @@
 10. ✅ 任务级模型选择（A1 `provider_id`）、执行进度与过程提示（含门禁暂停态）、Word 在线预览（A13 docx→HTML）
 11. ✅ C5 轨道交叉验证（skyfield/SGP4，ADR-0004 选型落地）；S7 接入 LLM、SSE 断线续传、任务列表页、S8 白名单护栏、引用自检
 12. ✅ 开放语料抓取（`make corpus-fetch`，3 份 NASA 公有领域文档 / 3037 chunks 已入库）；embedding 后端可切换（`EMBEDDING_BACKEND=bge-m3`，跨后端维度守卫）
-13. 下一步：pgvector 落地（需 Postgres 环境，步骤见 [04 §9.1](./04-knowledge-base.md)）；语料继续按 [collection-checklist.md](./collection-checklist.md) 采集
+13. ✅ 个人本地 agent：会话/消息/摘要/附件全部落 SQLite（前端直接读渲染）；sqlite-vec 向量索引；LangGraph 编排聊天（plan → retrieve → answer）；多会话与文档上传；聊天主页
+14. 下一步：语料继续按 [collection-checklist.md](./collection-checklist.md) 采集；pgvector 仅作为企业部署备选（[08](./08-storage.md)）
 
 ## 待确认事项
 

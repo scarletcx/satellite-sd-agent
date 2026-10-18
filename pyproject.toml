@@ -13,6 +13,8 @@ dependencies = [
   "python-multipart>=0.0.9",
   "mammoth>=1.8",
   "skyfield>=1.49",
+  "sqlite-vec>=0.1.6",
+  "langgraph>=0.2",
 ]
 
 [project.optional-dependencies]

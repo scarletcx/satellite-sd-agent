@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.api import chat as chat_api
 from app.api import kb as kb_api
 from app.api import missions, parameters, settings as settings_api, system
 from app.config import settings
@@ -30,6 +31,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="AI 卫星总体设计助手 API", version="0.1.0", lifespan=lifespan)
 
 app.include_router(system.router, prefix=API_PREFIX)
+app.include_router(chat_api.router, prefix=API_PREFIX)
 app.include_router(missions.router, prefix=API_PREFIX)
 app.include_router(parameters.router, prefix=API_PREFIX)
 app.include_router(kb_api.router, prefix=API_PREFIX)

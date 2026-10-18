@@ -43,9 +43,25 @@ class S8Output(_Loose):
     sections: dict
 
 
+class ChatPlanOutput(_Loose):
+    action: str = "answer"
+    query: str | None = None
+    answer: str | None = None
+
+
+class ChatAnswerOutput(_Loose):
+    answer: str = ""
+    used_citations: list = Field(default_factory=list)
+
+
+class ChatSummaryOutput(_Loose):
+    summary: str = ""
+
+
 VALIDATORS: dict[str, type[BaseModel]] = {
     "S1": S1Output, "S2": S2Output, "S3": S3Output, "S4": S4Output,
     "S7": S7Output, "S8": S8Output,
+    "CHAT_PLAN": ChatPlanOutput, "CHAT_ANSWER": ChatAnswerOutput, "CHAT_SUMMARY": ChatSummaryOutput,
 }
 
 

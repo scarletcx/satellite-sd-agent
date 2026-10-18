@@ -8,14 +8,14 @@
 | 最后更新 | 2026-10-05 |
 | 关联文档 | [03 数据模型](./03-data-model.md) · [04 知识库](./04-knowledge-base.md) · [12 部署](./12-deployment.md) |
 
-> 存储选型：Postgres 16 + pgvector（ADR-0003）。本文档细化到「可据此写 Alembic 迁移」：列级定义、索引、JSONB 结构、备份命令。
+> 存储选型（个人本地 agent，[ADR-0007](./adr/0007-personal-agent.md)）：**SQLite 单一文件**承载任务、参数、预算、校验、门禁、审计、会话记忆与知识库；向量检索用 **sqlite-vec**。Postgres + pgvector 保留为企业部署备选（[ADR-0003](./adr/0003-storage.md) 已被取代）。
 
 ## 1. 存储分层
 
 | 层 | 存什么 | 技术 | 连接配置 |
 |---|---|---|---|
-| 关系型 | 任务 / 参数 / 预算 / 校验 / 门禁 / 审计 / 语料登记 | Postgres 16 | `DATABASE_URL`（[12](./12-deployment.md)） |
-| 向量 | chunk embedding + 元数据 | pgvector（同库） | 同上 |
+| 关系型 | 任务 / 参数 / 预算 / 校验 / 门禁 / 审计 / 会话 / 消息 / 语料登记 | SQLite（默认 `dev.db`） | `DATABASE_URL`（[12](./12-deployment.md)） |
+| 向量 | chunk embedding + 元数据 | sqlite-vec `vec0` 虚表（同库）；缺失时回退 JSON 扫描 | 同库文件 |
 | 文件 | 语料原文 / 模板 / Word / trace | 本地目录 | 路径常量见 §4 |
 | 缓存 | 本期不做 | — | — |
 
@@ -111,28 +111,39 @@
 | `id` | text PK | `<doc_id>-<序号>` |
 | `doc_id` | text FK→corpus_manifest ON DELETE CASCADE | |
 | `content` | text | 切片正文 |
-| `embedding` | vector(1024) | bge-m3 |
-| `metadata` | jsonb | `{module, doc_type, year, page, is_synthetic, source_url, license}` |
+| `embedding` | json | 向量（SQLite JSON）；同时写入 sqlite-vec 索引 |
+| `metadata` | json | `{module, doc_type, year, page, is_synthetic, source_url, license, session_id?, embedding_model, embedding_dim}` |
 
-## 3. 向量检索（pgvector）
+### 2.11 chat_sessions / chat_messages / chat_documents（个人 agent）
 
-**初始化 SQL（参考）**：
+| 表 | 列 | 说明 |
+|---|---|---|
+| `chat_sessions` | `id` text PK（`cs-YYYYMMDD-NNN`）、`title`、`summary`（长期记忆）、`archived`、`created_at`、`updated_at` | 会话 |
+| `chat_messages` | `id` integer PK 自增、`session_id`（索引）、`role`（user/assistant/system）、`content`、`meta` json（citations/action/index_mode）、`created_at` | 短期记忆，前端直接读取渲染 |
+| `chat_documents` | `id` text PK（`cd-NNNN`，会话内序号）、`session_id`（索引）、`doc_id`（→ corpus_manifest）、`filename`、`chunks`、`created_at` | 会话附件 |
+
+- 记忆策略：短期 = 最近 12 条消息；长期 = `chat_sessions.summary`（每累计 10 条消息刷新）
+- 删除会话：级联删除消息与附件记录，并删除对应知识库文档与向量索引
+
+## 3. 向量检索（sqlite-vec）
+
+**初始化（代码自动完成）**：
 
 ```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE INDEX idx_kb_chunks_embedding ON kb_chunks
-  USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
-CREATE INDEX idx_kb_chunks_meta ON kb_chunks USING gin (metadata jsonb_path_ops);
+-- 每个 embedding 维度一张虚表；距离度量：余弦
+CREATE VIRTUAL TABLE IF NOT EXISTS kb_vec_1024
+  USING vec0(chunk_id text, embedding float[1024] distance_metric=cosine);
 ```
 
 **混合检索流程**：
 
-1. 元数据过滤（`WHERE metadata @> '{"module":"power"}'` 等）
-2. 向量近邻（`ORDER BY embedding <=> :qvec LIMIT k`）+ 关键词匹配（`pg_trgm` 相似度）
-3. 归一化后加权：`score = 0.7 × vec + 0.3 × kw`（初值，评测后调优）
-4. 阈值过滤（`score ≥ 0.35`，初值）→ 返回 Top-K
+1. sqlite-vec 近邻召回（默认 top-200，`WHERE embedding MATCH ? AND k = ? ORDER BY distance`）
+2. 元数据过滤（module / doc_type / session_id / is_synthetic 等，在 SQLite 行上判断）
+3. 与关键词重叠度加权：`score = 0.7 × cosine + 0.3 × kw`（初值，评测后调优）
+4. 阈值过滤（默认 `score ≥ 0.35`；聊天会话检索用 0.18 偏召回）→ 返回 Top-K
 
-- HNSW 参数与权重变更需开 ADR（见 [adr/README](./adr/README.md) 待记录清单）
+- 扩展不可用或索引为空时自动回退「JSON 向量全量扫描」，返回结构与阈值不变
+- 权重/阈值变更需开 ADR（见 [adr/README](./adr/README.md) 待记录清单）
 
 ## 4. 文件与制品目录
 
@@ -154,12 +165,11 @@ artifacts/<task_id>/
 ## 5. 备份 / 导出 / 可复现
 
 ```bash
-# 备份
-pg_dump "$DATABASE_URL" -Fc -f backup-$(date +%F).dump
+# 备份（SQLite 在线备份，单文件即可复制）
+sqlite3 dev.db ".backup 'backup-$(date +%F).db'"
 tar -czf artifacts-$(date +%F).tgz artifacts/
 
-# 任务快照（make snapshot TASK=<id>）
-pg_dump --table=missions --table=design_parameters ... + tar artifacts/<task_id>/
+# 任务快照（make snapshot TASK=<id>）：导出任务相关表 + tar artifacts/<task_id>/
 ```
 
 - 种子数据：黄金用例输入、fixtures、语料 manifest 快照（`make seed`）
@@ -175,7 +185,7 @@ pg_dump --table=missions --table=design_parameters ... + tar artifacts/<task_id>
 
 | 决策 | 备选 | 理由 | ADR |
 |---|---|---|---|
-| Postgres + pgvector | SQLite + Chroma / Milvus | 单组件、同库过滤、零迁移 | [0003](./adr/0003-storage.md) |
+| SQLite + sqlite-vec（个人 agent） | Postgres + pgvector / 独立向量库 | 零服务依赖、单文件可备份、前端可直读 | [0007](./adr/0007-personal-agent.md) |
 | text + CHECK 代替 PG enum | 原生 enum | 迁移无需 ALTER TYPE，演进成本低 | — |
 | 计算/校验/审计表只追加 | 允许更新 | 溯源不可变，回放可信 | [0005](./adr/0005-doc-engine.md) |
 | Repository 层隔离存储实现 | ORM 散落业务代码 | 保留降级 / 迁移能力 | [0003](./adr/0003-storage.md) |

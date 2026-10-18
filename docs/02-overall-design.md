@@ -14,10 +14,10 @@
 
 ```mermaid
 flowchart LR
-  U[卫星总体工程师] --> S[本系统]
+  U[个人用户 / 卫星工程师] --> S[本系统<br/>本地单机]
   S --> M[LLM 服务<br/>DeepSeek/Qwen/OpenAI-Claude/Ollama]
   S --> C[确定性计算与校验]
-  S --> K[(知识库<br/>Postgres + pgvector)]
+  S --> K[(本地知识库<br/>SQLite + sqlite-vec)]
   S --> W[Word 文档]
   C --> L[开源库<br/>轨道交叉验证]
 ```
@@ -32,6 +32,7 @@ flowchart LR
 3. **人工门禁不可跳过**：假设确认、校验失败处置必须由工程师决策。
 4. **LLM 只做语言与推理**：理解需求、澄清、组织方案、撰写叙述；不做算术、不做事实断言。
 5. **专业的事交给专业路径**：轨道等专业计算走明确实现 + 开源库交叉验证（ADR-0004），不拍脑袋。
+6. **本地优先**：个人 agent 定位，记忆、会话、知识库与向量索引全部落在本机 SQLite；不依赖独立数据库服务（[ADR-0007](./adr/0007-personal-agent.md)）。
 
 ## 3. 模块划分与边界
 
@@ -46,6 +47,7 @@ flowchart LR
 | 7 | 风险分析 | LLM 起草 + 案例库检索 | 参考 LLIS 历史教训 | S8 + kb.search |
 | 8 | 文档叙述与成稿 | LLM（仅叙述） | 数字来自 IR，LLM 只写文字 | S8 / [10](./10-doc-generation.md) |
 | 9 | 假设确认 / 冲突处置 | 人工门禁 | 责任边界 | S10 |
+| 10 | 个人 agent 对话（会话记忆 / 附件问答） | LangGraph 编排 + SQLite | 本地短期/长期记忆，前端直接读库；检索走 sqlite-vec | `app/chat/`（[ADR-0007](./adr/0007-personal-agent.md)） |
 
 ## 4. 端到端数据流
 
@@ -77,7 +79,7 @@ sequenceDiagram
 | 交互层 | 任务输入、进度、评审门禁、Trace | React 18 + TS + Vite + Ant Design 5（[09](./09-frontend.md)） |
 | 编排层 | 状态机（S1~S10）、工具调度、trace | FastAPI + 自研轻量状态机（ADR-0001） |
 | 能力层 | 计算工具、检索工具、渲染工具、LLM 适配 | `app/tools/*`、`app/providers/*`（[05](./05-agent-orchestration.md)） |
-| 数据层 | 参数 IR、预算、校验记录、向量库 | Postgres 16 + pgvector，SQLAlchemy + Alembic（ADR-0003） |
+| 数据层 | 参数 IR、预算、校验记录、会话记忆、向量库 | SQLite + sqlite-vec（ADR-0007） |
 | 文档层 | 模板渲染、出处标注 | docxtpl（ADR-0005） |
 
 ## 6. 失败模式与降级
@@ -126,6 +128,6 @@ docs/               # 本文档集
 |---|---|---|---|
 | Python + FastAPI + 自研状态机 | Node / Django / Agent 框架 | 生态 + 流程可控 | [0001](./adr/0001-tech-stack.md) |
 | 多供应商 LLM 适配层 | 单一供应商 | 降级与离线演示 | [0002](./adr/0002-llm-services.md) |
-| Postgres + pgvector | SQLite + Chroma / 独立向量库 | 单组件、同库过滤 | [0003](./adr/0003-storage.md) |
+| SQLite + sqlite-vec | Postgres + pgvector / 独立向量库 | 个人本地部署零依赖、单文件可备份 | [0007](./adr/0007-personal-agent.md) |
 | 自研轨道模型 + 库交叉验证 | 高保真库主路径 | 校验独立、依赖轻 | [0004](./adr/0004-orbit-computation.md) |
 | docxtpl | python-docx / pandoc | 模板可由工程师维护 | [0005](./adr/0005-doc-engine.md) |

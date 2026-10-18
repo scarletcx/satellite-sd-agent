@@ -328,3 +328,13 @@ stateDiagram-v2
 | 假设一等公民（显式台账） | 隐含在提示词里 | 拦截与责任边界的前提 | — |
 | S4 设计输入分组草案（`input.<group>`，payload 存整组、status=draft） | 只放内存 | 门禁可复查、断点可恢复、可被人工确认/驳回 | — |
 | `derived_from` + `upstream_hash` 做陈旧检测 | 变更后全量重算 | 精准失效、避免无谓重跑 | — |
+
+## 附：个人 agent 会话实体（SQLite）
+
+> 与设计参数 IR 相互独立，仅由 `app/chat/` 读写；字段级定义见 [08 §2.11](./08-storage.md)。
+
+| 实体 | 关键字段 | 语义 |
+|---|---|---|
+| `ChatSession` | `id`（`cs-YYYYMMDD-NNN`）、`title`、`summary`、`archived`、`created_at`、`updated_at` | 会话；`summary` 为长期记忆 |
+| `ChatMessage` | 自增 `id`、`session_id`、`role`（user/assistant/system）、`content`、`meta`（citations/action/index_mode）、`created_at` | 短期记忆；前端直接读取渲染 |
+| `ChatDocument` | `id`（`cd-NNNN`）、`session_id`、`doc_id`、`filename`、`chunks`、`created_at` | 会话附件，指向知识库文档 |

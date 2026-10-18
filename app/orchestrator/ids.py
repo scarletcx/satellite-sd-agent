@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     CalculationRecord,
+    ChatDocument,
     Mission,
     ReviewGate,
     SelectionCandidate,
@@ -61,3 +62,21 @@ def next_assumption_id(session: Session, mission_id: str) -> str:
 def next_candidate_ids(session: Session, mission_id: str, k: int) -> list[str]:
     base = _count(session, SelectionCandidate, mission_id)
     return [f"sc-{base + i + 1:04d}" for i in range(k)]
+
+
+def next_chat_session_id(session: Session) -> str:
+    from app.models import ChatSession
+
+    count = session.scalar(
+        select(func.count()).select_from(ChatSession)
+        .where(ChatSession.id.like(f"cs-{_today()}-%"))
+    ) or 0
+    return f"cs-{_today()}-{count + 1:03d}"
+
+
+def next_chat_document_id(session: Session, session_id: str) -> str:
+    base = session.scalar(
+        select(func.count()).select_from(ChatDocument)
+        .where(ChatDocument.session_id == session_id)
+    ) or 0
+    return f"cd-{base + 1:04d}"

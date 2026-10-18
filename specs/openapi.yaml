@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: AI 卫星总体设计助手 API
-  version: 0.5.0
+  version: 0.6.0
   description: |
     由 `docs/07-api.md`（v0.2 细化版）生成，用途：**Apifox / Postman 直接导入进行手动测试**。
     - 本地 Base URL：`http://127.0.0.1:8000/api/v1`
@@ -436,6 +436,216 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+
+  /chat/sessions:
+    get:
+      operationId: listChatSessions
+      tags: [Chat]
+      summary: 会话列表（D2）
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 100 }
+      responses:
+        '200':
+          description: 会话列表（按更新时间倒序）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/ChatSession' } }
+                  total: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      operationId: createChatSession
+      tags: [Chat]
+      summary: 新建会话（D1）
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string, maxLength: 120 }
+      responses:
+        '201':
+          description: 新会话
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatSession' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /chat/sessions/{session_id}:
+    parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema: { type: string, pattern: '^cs-\d{8}-\d{3}$' }
+    get:
+      operationId: getChatSession
+      tags: [Chat]
+      summary: 会话详情（D3，含附件）
+      responses:
+        '200':
+          description: 会话详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatSessionDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: renameChatSession
+      tags: [Chat]
+      summary: 重命名会话（D4）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string, minLength: 1, maxLength: 120 }
+      responses:
+        '200':
+          description: 更新后的会话
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatSession' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      operationId: deleteChatSession
+      tags: [Chat]
+      summary: 删除会话（D5，级联消息与附件）
+      responses:
+        '200':
+          description: 删除结果
+          content:
+            application/json:
+              example: { session_id: cs-20261018-001, deleted_messages: 12, deleted_documents: 2 }
+              schema: { type: object }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /chat/sessions/{session_id}/messages:
+    parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema: { type: string, pattern: '^cs-\d{8}-\d{3}$' }
+    get:
+      operationId: listChatMessages
+      tags: [Chat]
+      summary: 消息列表（D6，前端直接渲染）
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 300 }
+      responses:
+        '200':
+          description: 消息列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/ChatMessage' } }
+                  total: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      operationId: postChatMessage
+      tags: [Chat]
+      summary: 发送消息（D7）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, minLength: 1, maxLength: 20000 }
+      responses:
+        '200':
+          description: 用户消息 + 助手消息 + 会话详情
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/ChatMessage' }
+                  assistant: { $ref: '#/components/schemas/ChatMessage' }
+                  session: { $ref: '#/components/schemas/ChatSessionDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /chat/sessions/{session_id}/documents:
+    parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema: { type: string, pattern: '^cs-\d{8}-\d{3}$' }
+    get:
+      operationId: listChatDocuments
+      tags: [Chat]
+      summary: 会话附件列表（D9）
+      responses:
+        '200':
+          description: 附件列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/ChatDocument' } }
+                  total: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      operationId: uploadChatDocument
+      tags: [Chat]
+      summary: 上传会话附件（D8）
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: 附件信息
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatDocument' }
+        '400': { description: 文件类型/大小不合法 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /chat/sessions/{session_id}/documents/{document_id}:
+    parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema: { type: string, pattern: '^cs-\d{8}-\d{3}$' }
+      - name: document_id
+        in: path
+        required: true
+        schema: { type: string, pattern: '^cd-\d{4}$' }
+    delete:
+      operationId: deleteChatDocument
+      tags: [Chat]
+      summary: 删除会话附件（D10）
+      responses:
+        '200':
+          description: 删除结果
+          content:
+            application/json:
+              example: { document_id: cd-0001, doc_id: other-notes-txt-1a2b3c }
+              schema: { type: object }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /missions/{id}/assumptions:
     parameters:
@@ -1211,6 +1421,56 @@ components:
         registered_by: { type: string }
         confirmed_by: { type: string, nullable: true }
         confirmed_at: { type: string, nullable: true }
+
+    ChatSession:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        summary: { type: string }
+        created_at: { type: string, nullable: true }
+        updated_at: { type: string, nullable: true }
+        message_count: { type: integer }
+        last_message: { type: string }
+
+    ChatDocument:
+      type: object
+      properties:
+        id: { type: string }
+        doc_id: { type: string }
+        filename: { type: string }
+        chunks: { type: integer }
+        created_at: { type: string, nullable: true }
+
+    ChatSessionDetail:
+      allOf:
+        - $ref: '#/components/schemas/ChatSession'
+        - type: object
+          properties:
+            documents: { type: array, items: { $ref: '#/components/schemas/ChatDocument' } }
+
+    ChatMessage:
+      type: object
+      properties:
+        id: { type: integer }
+        role: { type: string, enum: [user, assistant, system] }
+        content: { type: string }
+        meta:
+          type: object
+          properties:
+            citations:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: string }
+                  title: { type: string }
+                  score: { type: number }
+                  snippet: { type: string }
+            used_citations: { type: array, items: { type: string } }
+            action: { type: string }
+            index_mode: { type: string }
+        created_at: { type: string, nullable: true }
 
     AssumptionReviewResult:
       type: object

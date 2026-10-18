@@ -10,7 +10,7 @@ install: install-deps
 install-deps:
 	python3 -m venv $(VENV)
 	$(PIP) install -q --upgrade pip
-	$(PIP) install -q fastapi "uvicorn[standard]" "pydantic>=2.7" "sqlalchemy>=2.0.36" "docxtpl>=0.17" "pymupdf>=1.24" "python-multipart>=0.0.9" "mammoth>=1.8" "skyfield>=1.49" "pytest>=8.0" "httpx>=0.27" "openpyxl>=3.1"
+	$(PIP) install -q fastapi "uvicorn[standard]" "pydantic>=2.7" "sqlalchemy>=2.0.36" "docxtpl>=0.17" "pymupdf>=1.24" "python-multipart>=0.0.9" "mammoth>=1.8" "skyfield>=1.49" "sqlite-vec>=0.1.6" "langgraph>=0.2" "pytest>=8.0" "httpx>=0.27" "openpyxl>=3.1"
 
 template:
 	$(PY) scripts/build_template.py

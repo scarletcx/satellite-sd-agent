@@ -82,7 +82,7 @@ export default function MissionList() {
               options={Object.keys(STATUS).map((key) => ({ value: key, label: STATUS[key].text }))}
             />
             <Button onClick={load}>刷新</Button>
-            <Button type="primary" onClick={() => navigate("/")}>新建设计任务</Button>
+            <Button type="primary" onClick={() => navigate("/missions/new")}>新建设计任务</Button>
           </Space>
         }
       >

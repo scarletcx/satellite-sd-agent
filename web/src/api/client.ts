@@ -134,6 +134,51 @@ export interface MissionSummary {
   updated_at: string;
 }
 
+export interface ChatSessionItem {
+  id: string;
+  title: string;
+  summary: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  last_message: string;
+}
+
+export interface ChatCitation {
+  id?: string;
+  title?: string;
+  source_url?: string;
+  snippet?: string;
+  score?: number;
+  page?: number | null;
+  is_synthetic?: boolean;
+}
+
+export interface ChatMessageItem {
+  id: number;
+  role: "user" | "assistant" | "system" | string;
+  content: string;
+  meta: {
+    citations?: ChatCitation[];
+    used_citations?: string[];
+    action?: string;
+    index_mode?: string;
+  };
+  created_at: string;
+}
+
+export interface ChatDocumentItem {
+  id: string;
+  doc_id: string;
+  filename: string;
+  chunks: number;
+  created_at: string;
+}
+
+export interface ChatSessionDetail extends ChatSessionItem {
+  documents: ChatDocumentItem[];
+}
+
 export interface ParameterSummary {
   id: string;
   name: string;
@@ -300,6 +345,61 @@ export const api = {
     }
     return response.json();
   },
+
+  // ------------------------------------------------------------ 个人 agent 会话
+
+  chatSessions: () =>
+    request<{ items: ChatSessionItem[]; total: number }>("/chat/sessions"),
+
+  chatCreateSession: (title?: string) =>
+    request<ChatSessionItem>("/chat/sessions", {
+      method: "POST",
+      body: JSON.stringify(title ? { title } : {}),
+    }),
+
+  chatSession: (sessionId: string) =>
+    request<ChatSessionDetail>(`/chat/sessions/${sessionId}`),
+
+  chatRenameSession: (sessionId: string, title: string) =>
+    request<ChatSessionItem>(`/chat/sessions/${sessionId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    }),
+
+  chatDeleteSession: (sessionId: string) =>
+    request<any>(`/chat/sessions/${sessionId}`, { method: "DELETE" }),
+
+  chatMessages: (sessionId: string) =>
+    request<{ items: ChatMessageItem[]; total: number }>(`/chat/sessions/${sessionId}/messages`),
+
+  chatSend: (sessionId: string, content: string) =>
+    request<{ user: ChatMessageItem; assistant: ChatMessageItem; session: ChatSessionDetail }>(
+      `/chat/sessions/${sessionId}/messages`,
+      { method: "POST", body: JSON.stringify({ content }) },
+    ),
+
+  chatUpload: async (sessionId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const response = await fetch(`${BASE}/chat/sessions/${sessionId}/documents`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${getToken()}` },
+      body: form,
+    });
+    if (!response.ok) {
+      let payload: any = null;
+      try {
+        payload = await response.json();
+      } catch {
+        /* ignore */
+      }
+      throw new ApiError(response.status, payload);
+    }
+    return (await response.json()) as ChatDocumentItem;
+  },
+
+  chatDeleteDocument: (sessionId: string, documentId: string) =>
+    request<any>(`/chat/sessions/${sessionId}/documents/${documentId}`, { method: "DELETE" }),
 
   // ------------------------------------------------------------ 供应商设置（ADR-0006）
 

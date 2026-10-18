@@ -2,10 +2,10 @@
 
 | 项目 | 内容 |
 |---|---|
-| 状态 | 接受 |
+| 状态 | 已被 [ADR-0007](./0007-personal-agent.md) 取代（个人本地 agent 改用 SQLite + sqlite-vec；本文作为企业部署备选保留） |
 | 日期 | 2026-10-05 |
 | 决策人 | 项目负责人 |
-| 关联 | [04 知识库](../04-knowledge-base.md) · [08 存储](../08-storage.md) |
+| 关联 | [04 知识库](../04-knowledge-base.md) · [08 存储](../08-storage.md) · [0007](./0007-personal-agent.md) |
 
 ## 1. 背景与问题
 

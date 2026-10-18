@@ -137,6 +137,16 @@
 | C5 | DELETE | `/settings/llm` | 恢复默认注册表 | 清除运行时配置（回落 env / config/llm.json） |
 | C6 | POST | `/settings/llm/probe` | 探测端点 | OpenAI 兼容：拉取 `/models`；Anthropic：最小调用 |
 | C7 | POST | `/settings/llm/test` | 连通性测试 | 对已保存供应商做一次最小真实调用 |
+| D1 | POST | `/chat/sessions` | 新建会话 | 可选 `title` |
+| D2 | GET | `/chat/sessions` | 会话列表 | 含消息数、最后一条消息 |
+| D3 | GET | `/chat/sessions/{id}` | 会话详情 | 含附件清单 |
+| D4 | PATCH | `/chat/sessions/{id}` | 重命名会话 | `{title}` |
+| D5 | DELETE | `/chat/sessions/{id}` | 删除会话 | 级联消息 / 附件 / 向量索引 |
+| D6 | GET | `/chat/sessions/{id}/messages` | 消息列表 | 直接读 SQLite，供前端渲染 |
+| D7 | POST | `/chat/sessions/{id}/messages` | 发送消息 | 返回用户消息 + 助手消息（含引用） |
+| D8 | POST | `/chat/sessions/{id}/documents` | 上传会话附件 | multipart；pdf/docx/txt/md/csv；≤20MB |
+| D9 | GET | `/chat/sessions/{id}/documents` | 附件列表 | |
+| D10 | DELETE | `/chat/sessions/{id}/documents/{document_id}` | 删除附件 | 同步清理知识库与向量索引 |
 
 ---
 
@@ -455,6 +465,62 @@ data: {"gate_id":"g-003","type":"assumption_confirm","param_id":"mass.margin_pct
 - **响应 200**：`{ task_id, items: [{id, category, name, vendor, params, score, reason, source_ref}], total }`
 - 候选清单同时作为文档第 10 章的数据源（S5 生成 → S9 渲染）
 
+## 3.5 个人 agent 会话接口（D1~D10）
+
+> 定位：单用户本地 agent。会话、消息、摘要、附件均存本机 SQLite（[ADR-0007](./adr/0007-personal-agent.md)）；
+> 前端直接读取 D2/D6 的返回结果渲染，不维护独立缓存。所有接口需 Bearer Token（单用户本机令牌）。
+
+**D1 新建会话**：`POST {{baseUrl}}/chat/sessions`
+
+```json
+{ "title": "测控链路问题排查" }
+```
+
+响应 201：`{ "id": "cs-20261018-001", "title": "测控链路问题排查", "summary": "", "created_at": "...", "updated_at": "...", "message_count": 0, "last_message": "" }`
+
+**D2 会话列表**：`GET {{baseUrl}}/chat/sessions?limit=100` → `{ items: [...], total }`（按 `updated_at` 倒序）
+
+**D3/D4/D5 会话详情 / 重命名 / 删除**：
+- `GET /chat/sessions/{id}` → 会话字段 + `documents[]`
+- `PATCH /chat/sessions/{id}` body `{ "title": "..." }`
+- `DELETE /chat/sessions/{id}` → `{ session_id, deleted_messages, deleted_documents }`（附件对应的知识库文档与向量一并删除）
+
+**D6 消息列表**：`GET /chat/sessions/{id}/messages?limit=300`
+
+```json
+{ "items": [
+  { "id": 1, "role": "user", "content": "链路余量要求是多少？", "meta": {}, "created_at": "..." },
+  { "id": 2, "role": "assistant", "content": "根据资料…[S1]",
+    "meta": { "citations": [{ "id": "S1", "title": "…", "score": 0.52, "snippet": "…" }],
+              "used_citations": ["S1"], "action": "search", "index_mode": "sqlite-vec" },
+    "created_at": "..." } ],
+  "total": 2 }
+```
+
+**D7 发送消息**：`POST /chat/sessions/{id}/messages` body `{ "content": "..." }`
+
+- 业务逻辑：写入用户消息（首条自动作会话标题）→ 读取最近 12 条消息 + 会话摘要 → LangGraph 编排
+  （plan → 可选 retrieve（会话附件，sqlite-vec）→ answer）→ 写入助手消息 → 按需刷新长期摘要
+- 响应：`{ user, assistant, session }`
+
+**D8/D9/D10 会话附件**：
+- 上传：`POST /chat/sessions/{id}/documents`（multipart `file`，≤20MB）→ `{ id, doc_id, filename, chunks, created_at }`
+- 列表：`GET /chat/sessions/{id}/documents`
+- 删除：`DELETE /chat/sessions/{id}/documents/{document_id}`
+
+```bash
+# 创建会话并发送一条消息
+curl -s -X POST {{baseUrl}}/chat/sessions -H 'Authorization: Bearer {{appToken}}' \
+  -H 'Content-Type: application/json' -d '{"title":"本地问答"}'
+curl -s -X POST {{baseUrl}}/chat/sessions/<sid>/messages -H 'Authorization: Bearer {{appToken}}' \
+  -H 'Content-Type: application/json' -d '{"content":"请检索资料：链路余量要求"}'
+# 上传附件
+curl -s -X POST {{baseUrl}}/chat/sessions/<sid>/documents -H 'Authorization: Bearer {{appToken}}' \
+  -F 'file=@./notes.txt'
+```
+
+---
+
 ## 4. 知识库接口
 
 ### B1 检索
@@ -612,6 +678,7 @@ PUT /api/v1/settings/llm
 | 2026-10-06 | v0.3 | 新增供应商设置接口 C3~C7（注册表 / 运行时配置 / 探测 / 测试，ADR-0006） | 新增接口，向后兼容 |
 | 2026-10-06 | v0.4 | A1 支持 `provider_id`（任务级模型选择）；新增 A13 Word 在线预览 | 新增字段/接口，向后兼容 |
 | 2026-10-06 | v0.5 | 输入确认门禁（A8 语义扩展 + A14 假设台账）；新增 A15 选型候选；A4 支持 `Last-Event-ID` 断线重放；文档版本递增（A2/A10/A13 支持 `version`） | 新增字段/接口，向后兼容 |
+| 2026-10-18 | v0.6 | 个人本地 agent：新增会话接口 D1~D10（SQLite 记忆、多会话、附件上传）；不改变既有 A/B/C 接口 | 新增接口，向后兼容 |
 
 ## 8. 关键取舍
 

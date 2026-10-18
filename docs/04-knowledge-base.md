@@ -64,7 +64,7 @@
 
 - **查询构造**：`query` 原文 + 元数据过滤（module / doc_type / year_from / is_synthetic）
 - **混合打分**（初值）：
-  - 向量相似度（pgvector 余弦）权重 0.7；关键词（`pg_trgm`）权重 0.3
+  - 向量相似度（sqlite-vec 近邻召回 + 余弦）权重 0.7；关键词（SQLite LIKE / 分词重叠）权重 0.3
   - `score = 0.7 × vec + 0.3 × kw`；阈值 `score ≥ 0.35`；返回 Top-K（默认 8）
 - **返回结构**：`results[] = {chunk_id, doc_id, title, text, score, citation}`
 - **重排**：本期不做（评测不达标再评估，见 [adr/README](./adr/README.md) 待记录清单）
@@ -106,9 +106,16 @@
 - 与 [08 存储](./08-storage.md) 的关系：manifest ↔ `kb_chunks` 级联；删除走 B4（审计）
 - 一致性检查：`make check` 校验 manifest 与 DB 计数一致
 
-## 9.1 后端切换（已实现）与 pgvector 落地步骤
+## 9.1 存储与后端切换（个人本地 agent）
 
-**Embedding 后端切换（配置级，代码已支持）**
+**向量索引（默认启用）**
+
+- 使用 `sqlite-vec` 的 `vec0` 虚表：`kb_vec_<dim>(chunk_id text, embedding float[dim] distance_metric=cosine)`；
+- 正文仍存 `kb_chunks`，向量索引只做近邻召回（默认 top-200），后续与原混合打分（0.7 向量 + 0.3 关键词）合并；
+- 扩展不可用（未安装/加载失败）时自动回退 SQLite JSON 全量扫描，接口与阈值不变；
+- 删除文档时同步清理向量索引；`GET /kb/stats` 返回 `vector_index` 与 `vector_indexed_chunks`。
+
+**Embedding 后端切换（配置级）**
 
 ```bash
 # 开发/测试（默认，零依赖）
@@ -120,25 +127,17 @@ export EMBEDDING_BACKEND=bge-m3
 export EMBEDDING_MODEL=BAAI/bge-m3      # 可选
 ```
 
-- 两种后端维度均为 1024；切换后需**重新摄取**语料
-- 维度不一致的旧 chunk 在检索时会被跳过，响应里带 `dim_mismatch` 计数与提示，不会拿哈希向量去比语义向量
-- `GET /kb/stats` 返回当前 `embedding_model` / `embedding_dim` / `embedding_backend`
-- **跨语言限制**：hashing 后端只做字面匹配，中文查询无法命中英文语料（NASA 文档等）；跨语言检索需切到 bge-m3（多语种）
-- 真实语料抓取：`corpus/sources.json` + `make corpus-fetch`（只收录明确允许公开下载的来源；已抓取 3 份 NASA 公有领域文档，共 3037 chunks）
+- 两种后端维度均为 1024；切换后需**重新摄取**语料；
+- 维度不一致的旧 chunk 在检索时会被跳过，响应里带 `dim_mismatch` 计数与提示；
+- **跨语言限制**：hashing 后端只做字面匹配，中文查询无法命中英文语料；跨语言检索需切到 bge-m3；
+- 真实语料抓取：`corpus/sources.json` + `make corpus-fetch`（已抓取 3 份 NASA 公有领域文档，共 3037 chunks）。
 
-**pgvector 落地（需 Postgres 环境，代码接口已预留）**
-
-1. 启动 Postgres 16 并 `CREATE EXTENSION IF NOT EXISTS vector;`
-2. 按 [08 §3](./08-storage.md) 将 `kb_chunks.embedding` 改为 `vector(1024)`，建 HNSW 索引（`vector_cosine_ops`）
-3. 检索实现从「SQLite JSON 全量扫描」换成 `ORDER BY embedding <=> :query LIMIT k`（`store.search` 对外返回结构不变）
-4. 迁移脚本建议：`scripts/migrate_pgvector.py`（读 SQLite → 重算/复用向量 → 写 Postgres），纳入 `make check`
-
-当前状态：第 1~3 步未执行（本机无 Postgres）；SQLite 全量扫描在万级 chunk 内可用。
+**企业部署备选（非默认）**：Postgres 16 + pgvector 仍在 [08](./08-storage.md) 保留为可选方案；个人 agent 模式不依赖 Docker。
 
 ## 10. 关键取舍
 
 | 决策 | 备选 | 理由 | ADR |
 |---|---|---|---|
-| pgvector 同库存储 | 独立向量库 | 单组件、SQL 过滤 | [0003](./adr/0003-storage.md) |
+| sqlite-vec 同库存储（个人 agent） | 独立向量库 / pgvector | 零服务依赖、与正文同库、扩展缺失时自动回退 | [0007](./adr/0007-personal-agent.md) |
 | 本地 bge-m3 | API embedding | 离线可用、零调用成本 | [0002](./adr/0002-llm-services.md) |
 | 初期不做重排 | 引入 rerank 模型 | 降低依赖；评测不达标再评估 | — |

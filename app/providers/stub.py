@@ -19,6 +19,9 @@ class StubProvider:
             "S4": self._s4_params,
             "S7": self._s7_advise,
             "S8": self._s8_narrative,
+            "CHAT_PLAN": self._chat_plan,
+            "CHAT_ANSWER": self._chat_answer,
+            "CHAT_SUMMARY": self._chat_summary,
         }.get(step)
         if handler is None:
             raise ValueError(f"桩 Provider 未实现步骤：{step}")
@@ -182,6 +185,36 @@ class StubProvider:
              "rationale": item.get("message", "")}
             for item in findings if item.get("status") == "block"
         ]}
+
+    # ------------------------------------------------------------- 对话（个人 agent）
+    @staticmethod
+    def _chat_plan(context: dict) -> dict:
+        question = str(context.get("question") or "")
+        keywords = ("资料", "文档", "手册", "检索", "上传", "知识库", "引用", "标准")
+        if any(word in question for word in keywords):
+            return {"action": "search", "query": question}
+        return {"action": "answer",
+                "answer": f"（桩模式）收到：{question}。在设置页配置真实模型后，我会给出完整回答。"}
+
+    @staticmethod
+    def _chat_answer(context: dict) -> dict:
+        evidence = context.get("evidence") or []
+        question = str(context.get("question") or "")
+        if not evidence:
+            return {"answer": f"资料里没有找到与「{question}」相关的内容。可以换一种问法，或上传相关文档后再试。",
+                    "used_citations": []}
+        titles = "；".join(str(item.get("title")) for item in evidence[:3])
+        ids = [str(item.get("id")) for item in evidence[:3]]
+        return {"answer": f"根据检索到的资料（{titles}），与「{question}」相关的内容如下："
+                          f"{evidence[0].get('snippet', '')[:200]}",
+                "used_citations": ids}
+
+    @staticmethod
+    def _chat_summary(context: dict) -> dict:
+        history = context.get("history") or []
+        parts = [f"{item.get('role')}: {str(item.get('content'))[:80]}" for item in history[-6:]]
+        summary = (str(context.get("summary") or "") + " " + " / ".join(parts)).strip()
+        return {"summary": summary[:200]}
 
     # ------------------------------------------------------------- S8 叙述
     @staticmethod

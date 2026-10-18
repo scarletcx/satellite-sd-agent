@@ -1,55 +1,86 @@
-# AI 卫星总体设计助手（satellite-sd-agent）
+# AI 卫星总体设计助手（个人本地 agent）
 
-> 输入任务书 → 输出可复核的整星设计方案：**数字全部来自确定性计算，全链路可追溯、可回放**。
-> 当前状态：**全链路可运行原型（v0.5）**。S1~S9 编排链路完整贯通；C1~C7 确定性计算（质量、功耗、数据量、轨道覆盖、测控链路、太阳翼、姿控粗算）、V1~V7 校验规则全部真实实现，轨道结果额外经 skyfield/SGP4 交叉验证；S7 冲突消解与 S8 叙述均由模型生成并过代码级白名单（数字必须可溯源、引用必须真实存在）；基于 docxtpl 的 Word 文档自动渲染、版本递增（v1/v2…，可回看历史版本）、下载与在线预览；知识库（解析、切片、向量摄取、混合检索、引用溯源）；LLM 适配层支持任意第三方 OpenAI / Anthropic 兼容网关与本地 Ollama，前端设置页支持热修改 URL、Key 与模型并实时生效；React + Ant Design 前端支持任务列表、任务级模型选择、S4 设计输入确认门禁、执行过程进度与提示（SSE 断线续传）、参数评审、选型候选与文档在线预览。已基于真实第三方网关完成全链路联调与验证。
+> **定位**：单用户、本机运行的个人 agent。会话记忆、聊天记录、知识库与向量索引全部存本地 SQLite；
+> 主界面是聊天（Codex 风格），可上传文档做资料问答；复杂设计任务走可审计的任务流水线。
+> 工程底线不变：**数字来自确定性计算，可追溯、可回放**。
+
+## 当前能力（v0.6）
+
+- **个人 agent 对话**：多会话（新建 / 切换 / 重命名 / 删除）、聊天记录持久化、刷新不丢；
+  短期记忆 = 最近 12 条消息，长期记忆 = 会话摘要（SQLite，`chat_sessions.summary`）
+- **文档上传**：pdf / docx / txt / md / csv（≤20MB）→ 本地知识库；按会话隔离检索
+- **RAG**：`sqlite-vec`（vec0 虚表、余弦距离）近邻召回 + 关键词混合打分；扩展不可用时自动回退 JSON 扫描；
+  embedding 可切 `hashing`（默认）或 `bge-m3`（`EMBEDDING_BACKEND=bge-m3`）
+- **对话编排**：LangGraph（plan → retrieve → answer），图表见 `app/chat/graph.py`
+- **设计任务流水线**：S1~S9 编排、C1~C7 确定性计算、V1~V7 校验（含 skyfield/SGP4 轨道交叉验证）、
+  输入确认门禁、参数评审、Word 自动渲染（版本递增）与在线预览、trace 回放
+- **LLM 适配层**：任意第三方 OpenAI / Anthropic 兼容网关与本地 Ollama；前端设置页热改 URL / Key / 模型；
+  自动降级链与用量成本记账
+- 测试：**72 个用例全部通过**
 
 ## 快速开始
 
 ```bash
-# 1) 安装（无 uv 环境，使用 venv + pip）
+# 1) 安装（venv + pip；默认 SQLite，无需 Docker）
 make install
 
-# 2) 运行（默认 SQLite；「设置」页配置 Key 后即接入真实模型，未配置时自动进入桩模式）
+# 2) 运行（未配置模型时自动进入桩模式）
 cp .env.example .env        # 可选：修改 APP_TOKEN
 make run                    # http://127.0.0.1:8000 ，接口文档 /docs
 
-# 3) 测试
-make test                   # 单元 + 流水线 + API 冒烟（65 个用例全部通过）
+# 3) 前端（/api 已代理到 8000）
+cd web && npm install && npm run dev    # http://localhost:5173（主页即对话）
 
-# 4) 常用脚本
+# 4) 测试与常用脚本
+make test                   # 单元 + 流水线 + API 冒烟（72 个用例）
 make seed                   # 导入种子语料（幂等）
 make corpus-fetch           # 抓取开放许可语料（NASA 公开文档；产物在 corpus/raw/，不入库）
-make demo-adv               # ADV-01 拦截演示：无计算依据的数字被校验层拦下（导出返回 409）
-make reference              # 生成 V5 历史对比参考分布（基于 UCS 公开卫星数据）
-make snapshot TASK=<task_id>    # 导出任务全量快照（zip）
-make cost-report TASK=<task_id> # 任务成本与 Token 用量报告
-
-# 5) 前端（/api 已代理到 8000）
-cd web && npm install && npm run dev    # http://localhost:5173
+make demo-adv               # 拦截演示：无计算依据的数字被校验层拦下（导出 409）
+make reference              # 生成 V5 历史对比参考分布（UCS 公开数据）
+make snapshot TASK=<id>     # 导出任务全量快照（zip）
+make cost-report TASK=<id>  # 任务成本与 Token 用量报告
 ```
 
-## 冒烟演示（全链路运行）
+## 个人 agent 冒烟（会话 / 上传 / 问答）
 
 ```bash
 TOKEN=dev-token-change-me
 BASE=http://127.0.0.1:8000/api/v1
 
-curl -s $BASE/healthz | python3 -m json.tool
+# 新建会话
+SID=$(curl -s -X POST $BASE/chat/sessions -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"title":"资料问答"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
 
-# 创建任务（支持通过 provider_id 指定供应商，留空则走设置页降级链）
+# 上传会话附件（进入本地知识库，按会话隔离检索）
+curl -s -X POST "$BASE/chat/sessions/$SID/documents" -H "Authorization: Bearer $TOKEN" \
+  -F "file=@./notes.txt"
+
+# 发消息（返回用户消息 + 助手消息，assistant.meta.citations 为引用）
+curl -s -X POST "$BASE/chat/sessions/$SID/messages" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"content":"请检索资料：链路余量要求是多少？"}'
+
+# 会话列表 / 消息历史 / 删除会话
+curl -s "$BASE/chat/sessions" -H "Authorization: Bearer $TOKEN"
+curl -s "$BASE/chat/sessions/$SID/messages" -H "Authorization: Bearer $TOKEN"
+curl -s -X DELETE "$BASE/chat/sessions/$SID" -H "Authorization: Bearer $TOKEN"
+```
+
+## 设计任务冒烟（全链路）
+
+```bash
+# 创建任务（支持 provider_id 指定供应商，留空走设置页降级链）
 curl -s -X POST $BASE/missions \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"goal":"设计一颗 500km SSO 光学遥感小卫星",
        "constraints":{"orbit_type":"SSO","altitude_km":500,"lifetime_years":3,"mass_limit_kg":80}}'
 
-# 用返回的 task_id 查看进度 / 参数 / 校验报告 / trace / 在线预览
+# 进度 / 参数 / 校验报告 / trace / 在线预览
 curl -s $BASE/missions/<task_id> -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 curl -s $BASE/missions/<task_id>/parameters -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 curl -s $BASE/missions/<task_id>/check-report -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 curl -s $BASE/missions/<task_id>/document/preview -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 
-# 门禁演示：当 mass_limit_kg 设为 70 时，质量超限触发 V4 阻断，任务停在 awaiting_gate，
-# 工程师在参数列表评审 mass.total_with_margin，通过接口签批后任务自动恢复并完成出稿：
+# 门禁：mass_limit_kg=70 时质量超限 → awaiting_gate；签批后自动恢复出稿
 curl -s -X POST $BASE/missions/<task_id>/parameters/mass.total_with_margin/review \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"action":"accept","reviewer":"engineer@example.com","comment":"接受超限，转入结构轻量化设计"}'
@@ -58,59 +89,59 @@ curl -s -X POST $BASE/missions/<task_id>/parameters/mass.total_with_margin/revie
 ## 知识库（摄取 / 检索）
 
 ```bash
-# 摄取（multipart；支持 pdf / docx / txt / md / csv）
 curl -s -X POST $BASE/kb/ingest -H "Authorization: Bearer $TOKEN" \
   -F "file=@tests/fixtures/kb/power.txt" \
   -F "module=power" -F "doc_type=report" -F "license=synthetic" \
   -F "is_synthetic=true" -F "title=电源分系统样例（合成）"
 
-# 检索（混合：向量 + 关键词）
 curl -s -X POST $BASE/kb/search -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"query":"太阳翼面积与电池容量如何估算","top_k":5}'
 
-# 统计 / 列表 / 删除
-curl -s $BASE/kb/stats -H "Authorization: Bearer $TOKEN"
-curl -s "$BASE/kb/documents?module=power" -H "Authorization: Bearer $TOKEN"
-curl -s -X DELETE "$BASE/kb/documents/<doc_id>?confirm=true" -H "Authorization: Bearer $TOKEN"
+curl -s $BASE/kb/stats -H "Authorization: Bearer $TOKEN"   # 含 vector_index / vector_indexed_chunks
 ```
 
 ## 目录结构
 
 ```
 app/
-  api/            # 对外接口层（FastAPI 路由：任务、参数评审、文档导出/预览、知识库、模型设置）
-  orchestrator/   # 状态机 S1~S9 编排引擎与 SSE 实时事件总线
+  chat/           # 个人 agent：LangGraph 编排（graph.py）与会话服务（service.py）
+  api/            # 对外接口层（FastAPI：会话、任务、参数评审、文档、知识库、模型设置）
+  orchestrator/   # 任务状态机 S1~S9 与 SSE 实时事件总线
   steps/          # 各步骤业务逻辑（S1~S9 全链路串联）
   tools/calc/     # 确定性计算核心：C1 质量、C2 功耗、C3 数据量、C4 链路、C5 轨道覆盖、C6 太阳翼、C7 姿控粗算
   tools/catalog/  # 选型候选规则匹配（示例选型库 data/parts_catalog.json）
-  tools/kb/       # 知识库工具链：文档解析、文本分块、Embedding 向量化、混合检索
-  tools/doc/      # Word 渲染与报告自检：docxtpl 动态注入与数字反向溯源查证
-  validation/     # 一致性校验引擎：V1 溯源、V2 独立复算、V3 闭合、V4 约束、V5 历史分布、V6 敏感性、V7 假设
-  providers/      # LLM 适配层：动态供应商注册表、降级链路由、提示词加载、用量与成本记账
-  models.py       # 数据库实体定义（SQLAlchemy ORM）
-prompts/          # 版本化提示词文件（S1/S3/S4/S8 及安全护栏）
-templates/        # 12 章 Word 技术规范模板（通过 make template 自动化生成）
-specs/            # 契约中心：OpenAPI 3.0 接口规范与 17 个 JSON Schema
-docs/             # 系统工程开发文档集（01~15 架构文档与 ADR 决策记录）
-tests/            # 自动化测试集（单元测试、流水线测试、API 冒烟、攻击拦截与设置管理）
-data/             # 示例选型库（parts_catalog.json）与历史参考分布
-artifacts/        # 任务运行产物存档（Word 方案文档、反向校验报告、全量执行 trace.jsonl）
+  tools/kb/       # 知识库：解析、分块、embedding、sqlite-vec 索引（vec_index.py）、混合检索
+  tools/doc/      # Word 渲染与报告自检（docxtpl + 数字反向溯源）
+  validation/     # V1~V7 校验 + 轨道交叉验证（orbit_crosscheck.py）
+  providers/      # LLM 适配层：供应商注册表、降级链、提示词加载、用量成本记账
+  models.py       # ORM：任务 / 参数 / 计算 / 校验 / 门禁 / 会话 / 消息 / 附件 / 知识库
+prompts/          # 版本化提示词（S1/S3/S4/S7/S8 + 对话 plan/answer/summary）
+templates/        # 12 章 Word 模板（make template 生成）
+specs/            # OpenAPI 3.0 + JSON Schema（单一事实源）
+docs/             # 开发文档 01~15 + ADR（含 ADR-0007 个人 agent 方案）
+tests/            # 单元 / 流水线 / API / 会话 / 向量索引测试
+data/             # 示例选型库与历史参考分布
+corpus/           # 语料（sources.json 可复现抓取；raw/ 不入库）
+artifacts/        # 任务运行产物（Word、校验报告、trace）
 ```
 
-## 当前实现与后续生产演进
+## 当前实现与后续演进
 
-| 模块 | 当前实现（工程原型 demo） | 生产落地演进目标 |
+| 模块 | 当前实现（个人本地 agent） | 后续演进 |
 |---|---|---|
-| 数据库存储 | 本地 SQLite（支持通过环境变量无缝切换 PostgreSQL） | PostgreSQL 16 + pgvector 原生扩展（docs/08） |
-| 文本向量检索 | 已抓取并入库 3 份 NASA 公开文档（3 份 / 3037 chunks，`make corpus-fetch`）；默认 hashing 后端（零依赖、同语言检索）；`EMBEDDING_BACKEND=bge-m3` 即切换 sentence-transformers（1024 维，跨语言；已实现，跨后端混用有维度守卫）；SQLite JSON 全量扫描 | PostgreSQL 16 + pgvector + HNSW（步骤见 docs/04 §9.1） |
-| 大语言模型 | 支持任意第三方网关与本地模型接入，前端设置页热修改，具备自动降级链、用量审计与任务级指定模型功能，已调通真实 API | 生产环境私有化高可用模型集群与专网网关路由（ADR-0002 / ADR-0006） |
-| 确定性计算 | C1~C7 全部实现，包含质量、功耗、数据量、链路余量、轨道覆盖（解析模型 + skyfield/SGP4 交叉验证）、太阳翼推导与姿控粗算 | 扩展摄动全模型与高精度定轨；主路径可替换为库实现（ADR-0004） |
-| 一致性校验 | V1~V7 规则集全部落地：溯源与引用完整性（未确认输入直接阻断）、六类计算独立复算 + 轨道第三方库交叉验证、质量/功耗/数据量闭合、链路余量阈值、质量与功耗硬约束（人工放行转为豁免 warn）、UCS 历史基线与敏感性分析 | 扩展更多分系统（姿控、热控）的详细物理闭合约束与经验数据库 |
-| 文档与自检 | 自动化生成 12 章 Word 技术方案，文档版本递增（v1/v2…）且历史版本可预览/下载；自检脚本校验全部数值 100% 可追溯 | 针对型号编制规范增加复杂图表公式与排版样式定制 |
-| 人机交互界面 | 基于 React 18 + AntD 5 构建，支持模型选择、S4 输入确认门禁、实时进度与过程提示、参数评审、选型候选及文档历史版本在线预览 | 完善多任务协同看板与企业级权限审计体系（docs/09） |
+| 存储 | **SQLite 单文件**：任务 / 参数 / 会话 / 消息 / 知识库 / 向量索引（ADR-0007） | 可选企业部署：Postgres + pgvector（docs/08） |
+| 记忆 | 短期 12 条消息 + 长期会话摘要（SQLite）；前端直接读库渲染 | 摘要策略可配置、跨会话记忆 |
+| 向量检索 | **sqlite-vec**（vec0、余弦、按维度分表）+ 关键词混合打分；缺失自动回退 JSON 扫描 | 大规模语料下评估重排与分片 |
+| 对话编排 | **LangGraph**：plan → retrieve → answer；数字/引用随消息元数据返回 | 增加工具调用（任务发起、计算查询） |
+| 任务流水线 | 自研状态机（门禁 / 断点 / SSE / 成本守卫），未迁移 LangGraph | 按需评估图化，保持门禁语义 |
+| 确定性计算 | C1~C7 + skyfield/SGP4 轨道交叉验证 | 摄动全模型 / 高精度定轨 |
+| 校验 | V1~V7（溯源、复算、闭合、约束、历史、敏感性、假设）+ 豁免语义 | 更多分系统闭合约束 |
+| 文档 | 12 章 Word、版本递增、在线预览、数字 100% 可追溯 | 图表与排版增强 |
+| 大模型 | 任意第三方网关 / 本地 Ollama；设置页热改；降级链与成本记账 | 私有化集群与专网网关 |
 
 ## 工程约定
 
 - 接口与实体以 `specs/` 为单一事实源；调整接口需先同步 `docs/07-api.md`
-- 所有任务的运行产物（trace、Word、自检报告）严格持久化于 `artifacts/<task_id>/`，支持全过程回放
-- 自动化校验期望值独立制定，禁止使用大模型自身生成的数值作为测试真值（docs/11 §7）
+- 运行产物落在 `artifacts/<task_id>/`，支持全过程回放
+- 测试期望值独立制定，禁止用模型自身输出当期望（docs/11 §7）
+- **上传文件只进本地知识库**；模型调用会把必要的提示词片段发往所选供应商（设置页可见）

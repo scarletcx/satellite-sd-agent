@@ -17,6 +17,7 @@ from sqlalchemy import func, select
 
 from app.db import new_session
 from app.models import AppMeta, AuditLog, CorpusManifest, KbChunk
+from app.tools.kb import vec_index
 from app.tools.kb.chunking import chunk_text
 from app.tools.kb.embedding import cosine, get_embedder, resolve_backend, tokens
 from app.tools.kb.parsing import parse_file
@@ -67,6 +68,8 @@ def _match_filters(meta: dict, filters: dict) -> bool:
         return False
     if filters.get("doc_type") and meta.get("doc_type") != filters["doc_type"]:
         return False
+    if filters.get("session_id") and meta.get("session_id") != filters["session_id"]:
+        return False
     if filters.get("is_synthetic") is False and meta.get("is_synthetic"):
         return False
     if filters.get("year_from"):
@@ -91,6 +94,7 @@ def ingest_file(
     is_synthetic: bool = False,
     title: str | None = None,
     source_url: str | None = None,
+    extra_meta: dict | None = None,
 ) -> dict:
     if module not in MODULES:
         raise KbError(f"module 非法：{module}")
@@ -111,12 +115,15 @@ def ingest_file(
         pages = parse_file(path)
         embedder = get_embedder()
         count = 0
+        vectors: list[tuple[str, list[float]]] = []
         for page_number, text in pages:
             for piece in chunk_text(text):
                 count += 1
                 vector = embedder.embed([piece])[0]
+                chunk_id = f"{doc_id}-{count:03d}"
+                vectors.append((chunk_id, vector))
                 session.add(KbChunk(
-                    id=f"{doc_id}-{count:03d}",
+                    id=chunk_id,
                     doc_id=doc_id,
                     content=piece,
                     embedding=vector,
@@ -130,6 +137,7 @@ def ingest_file(
                         "page": page_number,
                         "embedding_model": embedder.name,
                         "embedding_dim": len(vector),
+                        **(extra_meta or {}),
                     },
                 ))
         if count == 0:
@@ -142,20 +150,35 @@ def ingest_file(
         version = _bump_corpus_version(session)
         session.commit()
 
-    return {"doc_id": doc_id, "title": display_title, "chunks": count, "corpus_version": version}
+    # 向量索引（sqlite-vec）：写入失败不影响主流程（检索会回退到 JSON 全量扫描）
+    vec_ok = vec_index.add_vectors(embedder.dim, vectors)
+
+    return {"doc_id": doc_id, "title": display_title, "chunks": count, "corpus_version": version,
+            "vector_index": "sqlite-vec" if vec_ok else "scan"}
 
 
-def search(query: str, filters: dict | None = None, top_k: int = 8) -> dict:
+def search(query: str, filters: dict | None = None, top_k: int = 8,
+           candidate_k: int = 200, min_score: float | None = None) -> dict:
     filters = filters or {}
+    threshold = SCORE_THRESHOLD if min_score is None else float(min_score)
     started = time.perf_counter()
     embedder = get_embedder()
     query_vector = embedder.embed([query])[0]
     query_tokens = set(tokens(query))
     dim_mismatch = 0
+    index_mode = "scan"
+
+    # sqlite-vec 先做近邻召回；不可用/索引为空时回退全量扫描
+    vec_hits = vec_index.query_vectors(len(query_vector), query_vector, k=candidate_k)
 
     with new_session() as session:
         manifests = {m.doc_id: m for m in session.scalars(select(CorpusManifest)).all()}
-        rows = session.scalars(select(KbChunk)).all()
+        if vec_hits:
+            index_mode = "sqlite-vec"
+            ids = [chunk_id for chunk_id, _ in vec_hits]
+            rows = session.scalars(select(KbChunk).where(KbChunk.id.in_(ids))).all()
+        else:
+            rows = session.scalars(select(KbChunk)).all()
 
         scored: list[tuple[float, KbChunk, dict]] = []
         for row in rows:
@@ -169,7 +192,7 @@ def search(query: str, filters: dict | None = None, top_k: int = 8) -> dict:
             similarity = cosine(query_vector, vector)
             keyword = _keyword_score(query_tokens, set(tokens(row.content)))
             score = VEC_WEIGHT * similarity + KW_WEIGHT * keyword
-            if score >= SCORE_THRESHOLD:
+            if score >= threshold:
                 scored.append((score, row, meta))
 
         scored.sort(key=lambda item: item[0], reverse=True)
@@ -195,7 +218,9 @@ def search(query: str, filters: dict | None = None, top_k: int = 8) -> dict:
             })
 
     response = {"results": results, "took_ms": int((time.perf_counter() - started) * 1000),
-                "no_evidence": not results, "dim_mismatch": dim_mismatch}
+                "no_evidence": not results, "dim_mismatch": dim_mismatch,
+                "index_mode": index_mode,
+                "indexed_chunks": vec_index.indexed_count(embedder.dim)}
     if dim_mismatch and not results:
         response["note"] = (f"{dim_mismatch} 个 chunk 的向量维度与当前 embedding 后端不一致"
                             "（可能来自另一个后端）；请用当前后端重新摄取，或切回原后端。")
@@ -226,6 +251,8 @@ def delete_document(doc_id: str, reviewer: str = "system") -> dict:
         manifest = session.get(CorpusManifest, doc_id)
         if manifest is None:
             raise KbError(f"语料不存在：{doc_id}")
+        chunk_ids = [row[0] for row in session.query(KbChunk.id)
+                     .filter(KbChunk.doc_id == doc_id).all()]
         deleted = (session.query(KbChunk)
                    .filter(KbChunk.doc_id == doc_id)
                    .delete(synchronize_session=False))
@@ -235,6 +262,7 @@ def delete_document(doc_id: str, reviewer: str = "system") -> dict:
                              who=reviewer, why="B4 delete"))
         version = _bump_corpus_version(session)
         session.commit()
+    vec_index.delete_chunks(chunk_ids)
     return {"doc_id": doc_id, "deleted_chunks": deleted, "corpus_version": version}
 
 
@@ -251,5 +279,7 @@ def stats() -> dict:
             "embedding_model": embedder.name,
             "embedding_dim": embedder.dim,
             "embedding_backend": resolve_backend(),
+            "vector_index": ("sqlite-vec" if vec_index.sqlite_vec_available() else "scan"),
+            "vector_indexed_chunks": vec_index.indexed_count(embedder.dim),
             "last_ingest_at": last.isoformat() if last else None,
         }

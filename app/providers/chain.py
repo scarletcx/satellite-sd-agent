@@ -24,8 +24,14 @@ STEP_PROMPTS = {
     "S4": "s4_params/params.v1.md",
     "S7": "s7_advise/advise.v1.md",
     "S8": "s8_narrative/narrative.v1.md",
+    "CHAT_PLAN": "chat_plan/plan.v1.md",
+    "CHAT_ANSWER": "chat_answer/answer.v1.md",
+    "CHAT_SUMMARY": "chat_summary/summary.v1.md",
 }
-STEP_TEMPERATURES = {"S1": 0.2, "S2": 0.2, "S3": 0.3, "S4": 0.1, "S7": 0.3, "S8": 0.6}
+STEP_TEMPERATURES = {
+    "S1": 0.2, "S2": 0.2, "S3": 0.3, "S4": 0.1, "S7": 0.3, "S8": 0.6,
+    "CHAT_PLAN": 0.3, "CHAT_ANSWER": 0.4, "CHAT_SUMMARY": 0.2,
+}
 REPAIR_RETRIES = 2
 
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.S)
