@@ -17,4 +17,5 @@ FORMULA_VERSIONS = {
     "calc.orbit": "orbit-v1",
     "calc.link_budget": "link-v1",
     "calc.eps": "eps-v1",
+    "calc.adcs": "adcs-v1",
 }

@@ -326,4 +326,5 @@ stateDiagram-v2
 |---|---|---|---|
 | 统一 IR + JSON Schema 单一事实源 | 各模块自定义结构 | 校验 / 渲染 / 回放统一 | [0001](./adr/0001-tech-stack.md) |
 | 假设一等公民（显式台账） | 隐含在提示词里 | 拦截与责任边界的前提 | — |
+| S4 设计输入分组草案（`input.<group>`，payload 存整组、status=draft） | 只放内存 | 门禁可复查、断点可恢复、可被人工确认/驳回 | — |
 | `derived_from` + `upstream_hash` 做陈旧检测 | 变更后全量重算 | 精准失效、避免无谓重跑 | — |

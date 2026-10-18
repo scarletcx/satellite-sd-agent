@@ -1,10 +1,48 @@
-"""步骤公共工具：参数 upsert 与读取。"""
+"""步骤公共工具：参数 upsert / 读取，设计输入分组读取与待确认统计。"""
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import DesignParameter
+from app.models import Assumption, DesignParameter
+
+INPUT_GROUPS: tuple[str, ...] = ("orbit", "mass", "power", "eps", "data", "link")
+BLOCKING_PARAM_STATUSES: tuple[str, ...] = ("draft", "needs_review", "rejected")
+
+
+class InputNotConfirmedError(RuntimeError):
+    """存在未确认（或已驳回）的设计输入草案，不允许进入计算。"""
+
+
+def load_inputs(session: Session, mission_id: str, *, require_confirmed: bool = True) -> dict:
+    """读取 S4 落库的分组设计输入（id = input.<group>，payload = 计算输入对象）。"""
+    rows = session.scalars(
+        select(DesignParameter).where(
+            DesignParameter.mission_id == mission_id,
+            DesignParameter.id.like("input.%"),
+        )
+    ).all()
+    blocking = [row.id for row in rows if row.status in ("draft", "rejected")]
+    if require_confirmed and blocking:
+        raise InputNotConfirmedError(f"设计输入未确认或已驳回：{blocking}（请先完成输入门禁评审）")
+    return {row.id.split(".", 1)[1]: dict(row.payload or {}) for row in rows}
+
+
+def unconfirmed_total(session: Session, mission_id: str) -> int:
+    """待人工处理的确认项数量：未确认/被驳回的参数 + 未确认的假设。"""
+    params = session.scalar(
+        select(func.count()).select_from(DesignParameter).where(
+            DesignParameter.mission_id == mission_id,
+            DesignParameter.status.in_(BLOCKING_PARAM_STATUSES),
+        )
+    ) or 0
+    assumptions = session.scalar(
+        select(func.count()).select_from(Assumption).where(
+            Assumption.mission_id == mission_id,
+            Assumption.status == "open",
+        )
+    ) or 0
+    return params + assumptions
 
 
 def upsert_parameter(

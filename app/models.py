@@ -40,8 +40,9 @@ class DesignParameter(Base):
     name_en: Mapped[str | None] = mapped_column(String(128), nullable=True)
     value: Mapped[float] = mapped_column(Float)
     unit: Mapped[str] = mapped_column(String(16))
-    source_type: Mapped[str] = mapped_column(String(16))  # calc/doc/catalog/assumption/human
+    source_type: Mapped[str] = mapped_column(String(16))  # calc/doc/catalog/assumption/model/human
     source_ref: Mapped[str] = mapped_column(String(128))
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # 分组草案输入（S4 draft）等结构化内容
     margin: Mapped[float | None] = mapped_column(Float, nullable=True)
     confidence: Mapped[str] = mapped_column(String(8), default="medium")
     status: Mapped[str] = mapped_column(String(16), default="proposed")
@@ -120,6 +121,21 @@ class AuditLog(Base):
     who: Mapped[str] = mapped_column(String(128))
     why: Mapped[str] = mapped_column(Text)
     ts: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class SelectionCandidate(Base):
+    __tablename__ = "selection_candidates"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)  # sc-NNNN（任务内序号）
+    mission_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    category: Mapped[str] = mapped_column(String(32))
+    name: Mapped[str] = mapped_column(String(128))
+    vendor: Mapped[str] = mapped_column(String(64), default="")
+    params: Mapped[dict] = mapped_column(JSON, default=dict)
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    source_ref: Mapped[str] = mapped_column(String(128), default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
 class CorpusManifest(Base):

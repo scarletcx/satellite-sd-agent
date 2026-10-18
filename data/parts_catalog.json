@@ -1,0 +1,26 @@
+{
+  "note": "示例选型库：参数为公开资料的量级数据（并非具体型号指标），用于演示选型流程；真实项目应替换为企业合格供方目录并与总体工程师确认口径。",
+  "items": [
+    {"id": "bat-li-40", "category": "battery", "name": "锂离子电池组（40 Wh/kg 级）", "vendor": "示例供应商 A", "params": {"wh_per_kg": 40.0}, "source_ref": "公开资料量级（示例库）"},
+    {"id": "bat-li-60", "category": "battery", "name": "锂离子电池组（60 Wh/kg 级）", "vendor": "示例供应商 B", "params": {"wh_per_kg": 60.0}, "source_ref": "公开资料量级（示例库）"},
+    {"id": "bat-li-90", "category": "battery", "name": "锂离子电池组（90 Wh/kg 级，高比能）", "vendor": "示例供应商 C", "params": {"wh_per_kg": 90.0}, "source_ref": "公开资料量级（示例库）"},
+
+    {"id": "cell-si-18", "category": "solar_cell", "name": "硅太阳电池（效率 18%）", "vendor": "示例供应商 D", "params": {"efficiency": 0.18}, "source_ref": "公开资料量级（示例库）"},
+    {"id": "cell-gaas-28", "category": "solar_cell", "name": "三结砷化镓太阳电池（效率 28%）", "vendor": "示例供应商 E", "params": {"efficiency": 0.28}, "source_ref": "公开资料量级（示例库）"},
+    {"id": "cell-gaas-30", "category": "solar_cell", "name": "三结砷化镓太阳电池（效率 30%）", "vendor": "示例供应商 F", "params": {"efficiency": 0.30}, "source_ref": "公开资料量级（示例库）"},
+
+    {"id": "ttc-s-01", "category": "transponder", "name": "S 频段测控应答机（轻量化）", "vendor": "示例供应商 G", "params": {"band": "S", "mass_kg": 1.4, "power_w": 6.0}, "source_ref": "公开资料量级（示例库）"},
+    {"id": "ttc-s-02", "category": "transponder", "name": "S 频段测控应答机（加固型）", "vendor": "示例供应商 H", "params": {"band": "S", "mass_kg": 2.6, "power_w": 10.0}, "source_ref": "公开资料量级（示例库）"},
+
+    {"id": "tx-x-01", "category": "transmitter", "name": "X 频段数传发射机（150 Mbps 级）", "vendor": "示例供应商 I", "params": {"band": "X", "mass_kg": 2.2, "power_w": 28.0, "data_rate_mbps": 150.0}, "source_ref": "公开资料量级（示例库）"},
+    {"id": "tx-x-02", "category": "transmitter", "name": "X 频段数传发射机（300 Mbps 级）", "vendor": "示例供应商 J", "params": {"band": "X", "mass_kg": 3.1, "power_w": 40.0, "data_rate_mbps": 300.0}, "source_ref": "公开资料量级（示例库）"},
+
+    {"id": "obc-01", "category": "obc", "name": "星务计算机（低功耗型）", "vendor": "示例供应商 K", "params": {"mass_kg": 1.6, "power_w": 4.0}, "source_ref": "公开资料量级（示例库）"},
+    {"id": "obc-02", "category": "obc", "name": "星务计算机（高可靠型）", "vendor": "示例供应商 L", "params": {"mass_kg": 2.4, "power_w": 7.0}, "source_ref": "公开资料量级（示例库）"},
+
+    {"id": "rw-01", "category": "reaction_wheel", "name": "反作用轮（0.05 N·m·s 级）", "vendor": "示例供应商 M", "params": {"momentum_nms": 0.05, "torque_nm": 0.02, "mass_kg": 1.1, "power_w": 8.0}, "source_ref": "公开资料量级（示例库）"},
+    {"id": "rw-02", "category": "reaction_wheel", "name": "反作用轮（0.12 N·m·s 级）", "vendor": "示例供应商 N", "params": {"momentum_nms": 0.12, "torque_nm": 0.05, "mass_kg": 1.9, "power_w": 14.0}, "source_ref": "公开资料量级（示例库）"},
+    {"id": "rw-03", "category": "reaction_wheel", "name": "反作用轮（0.25 N·m·s 级）", "vendor": "示例供应商 O", "params": {"momentum_nms": 0.25, "torque_nm": 0.10, "mass_kg": 3.2, "power_w": 22.0}, "source_ref": "公开资料量级（示例库）"},
+    {"id": "mtq-01", "category": "magnetorquer", "name": "磁力矩器（15 A·m² 级）", "vendor": "示例供应商 P", "params": {"dipole_am2": 15.0, "mass_kg": 0.9, "power_w": 3.0}, "source_ref": "公开资料量级（示例库）"}
+  ]
+}

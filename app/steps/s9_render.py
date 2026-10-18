@@ -9,7 +9,7 @@ import re
 from datetime import datetime, timezone
 
 from app.db import new_session
-from app.models import Assumption, Mission
+from app.models import Assumption, Mission, SelectionCandidate
 from app.steps.common import load_params
 from app.tools.doc.check import check_document, numbers_in_texts
 from app.tools.doc.render import build_context, format_value, render_document
@@ -54,6 +54,19 @@ def _load_citations(mission_id: str) -> list[dict]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _load_candidates(mission_id: str) -> list[dict]:
+    with new_session() as session:
+        rows = (session.query(SelectionCandidate)
+                .filter(SelectionCandidate.mission_id == mission_id)
+                .order_by(SelectionCandidate.id).all())
+        return [
+            {"category": row.category, "name": row.name, "vendor": row.vendor,
+             "params": dict(row.params or {}), "score": row.score, "reason": row.reason,
+             "source_ref": row.source_ref}
+            for row in rows
+        ]
+
+
 def run(ctx: dict) -> dict:
     mission_id = ctx["task_id"]
     with new_session() as session:
@@ -69,6 +82,7 @@ def run(ctx: dict) -> dict:
     mission = {"goal": mission_row.goal, "constraints": dict(mission_row.constraints or {})}
     system_design = ctx.get("system_design") or _load_system_design(mission_id)
     citations = ctx.get("citations") or _load_citations(mission_id)
+    candidates = ctx.get("candidates") or _load_candidates(mission_id)
 
     values = _lookup(mission, params)
     narrative = {
@@ -77,9 +91,15 @@ def run(ctx: dict) -> dict:
     }
 
     context = build_context(mission, params, system_design, assumptions, narrative,
-                            citations=citations)
+                            citations=citations, candidates=candidates)
     directory = task_dir(mission_id)
-    docx_path = render_document("design-report-v1", context, directory / "document-v1.docx")
+    existing = [
+        int(path.stem.rsplit("-v", 1)[1])
+        for path in directory.glob("document-v*.docx")
+        if path.stem.rsplit("-v", 1)[-1].isdigit()
+    ]
+    version = max(existing, default=0) + 1
+    docx_path = render_document("design-report-v1", context, directory / f"document-v{version}.docx")
 
     # 数字反查允许集合：IR 参数 + 任务约束 + 假设台账 + 系统方案
     allowed = [param["value"] for param in params]
@@ -88,10 +108,12 @@ def run(ctx: dict) -> dict:
             allowed.append(float(value))
     allowed += numbers_in_texts([f"{a['content']} {a['basis']}" for a in assumptions])
     allowed += numbers_in_texts([json.dumps(system_design, ensure_ascii=False)])
+    allowed += numbers_in_texts([json.dumps(candidates, ensure_ascii=False)])
 
     result = check_document(docx_path, allowed)
     report = {
         "task_id": mission_id,
+        "document_version": version,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "placeholders_left": result["placeholders_left"],
         "numbers_checked": result["numbers_checked"],
@@ -110,5 +132,6 @@ def run(ctx: dict) -> dict:
     )
 
     ctx["check_report"] = report
-    return {"type": "tool", "output_ref": "document-v1.docx",
+    return {"type": "tool", "output_ref": f"document-v{version}.docx",
+            "document_version": version,
             "placeholders_left": report["placeholders_left"]}

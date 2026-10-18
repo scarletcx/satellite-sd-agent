@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   Alert, Badge, Button, Card, Descriptions, Input, InputNumber, List, Modal, Popconfirm,
-  Progress, Radio, Select, Space, Table, Tabs, Timeline, Typography, message,
+  Progress, Radio, Select, Space, Table, Tabs, Tag, Timeline, Typography, message,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 
 import {
   ApiError, api, getToken,
-  type CheckReport, type MissionDetail as MissionDetailData, type ParameterSummary,
+  type AssumptionItem, type CheckReport, type MissionDetail as MissionDetailData,
+  type ParameterSummary,
 } from "../api/client";
 import { openMissionStream } from "../api/sse";
 
@@ -66,6 +67,7 @@ export default function MissionDetail() {
   const [reviewer, setReviewer] = useState(localStorage.getItem("satellite_reviewer") || "engineer@example.com");
 
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [assumptions, setAssumptions] = useState<AssumptionItem[]>([]);
   const [reviewParam, setReviewParam] = useState<ParameterSummary | null>(null);
   const [reviewAction, setReviewAction] = useState<"accept" | "reject">("accept");
   const [reviewComment, setReviewComment] = useState("");
@@ -75,18 +77,21 @@ export default function MissionDetail() {
   const [previewHtml, setPreviewHtml] = useState<string>("");
   const [previewNote, setPreviewNote] = useState<string>("");
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [docVersion, setDocVersion] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
       const query: Record<string, string> = {};
       if (filters.status) query.status = filters.status;
       if (filters.module) query.module = filters.module;
-      const [mission, paramList] = await Promise.all([
+      const [mission, paramList, assumptionList] = await Promise.all([
         api.getMission(taskId),
         api.listParameters(taskId, query),
+        api.assumptions(taskId),
       ]);
       setDetail(mission);
       setParams(paramList.items);
+      setAssumptions(assumptionList.items);
       try {
         setReport(await api.getCheckReport(taskId));
       } catch {
@@ -129,11 +134,11 @@ export default function MissionDetail() {
     return close;
   }, [taskId, load]);
 
-  // Word 在线预览（docx → HTML，后端 mammoth 转换）
-  const loadPreview = useCallback(async () => {
+  // Word 在线预览（docx → HTML，后端 mammoth 转换）；可指定历史版本
+  const loadPreview = useCallback(async (version?: number | null) => {
     setPreviewLoading(true);
     try {
-      const result = await api.documentPreview(taskId);
+      const result = await api.documentPreview(taskId, version ?? undefined);
       setPreviewHtml(result.html);
       setPreviewNote(result.warnings?.length ? `转换提示：${result.warnings.join("；")}` : "");
     } catch (error) {
@@ -151,7 +156,37 @@ export default function MissionDetail() {
     () => Array.from(new Set(params.map((item) => item.id.split(".")[0]))).sort(),
     [params],
   );
-  const needsReview = params.filter((item) => ["needs_review", "proposed"].includes(item.status)).length;
+  const needsReview = params.filter(
+    (item) => ["needs_review", "proposed", "draft"].includes(item.status),
+  ).length;
+  const openAssumptions = assumptions.filter((item) => item.status === "open");
+  const draftInputs = params.filter((item) => item.status === "draft");
+
+  const confirmDraft = async (paramId: string) => {
+    try {
+      const result = await api.reviewParameter(taskId, paramId, {
+        action: "accept", reviewer, comment: "界面确认设计输入",
+      });
+      message.success(result.remaining_confirmations === 0
+        ? "输入已确认，任务恢复执行" : `已确认，剩余 ${result.remaining_confirmations} 项待处理`);
+      load();
+    } catch (error) {
+      if (error instanceof ApiError) message.error(`[${error.code}] ${error.message}`);
+    }
+  };
+
+  const confirmAssumption = async (assumptionId: string) => {
+    try {
+      const result = await api.reviewAssumption(taskId, assumptionId, {
+        action: "accept", reviewer, comment: "界面确认",
+      });
+      message.success(result.remaining_confirmations === 0
+        ? "假设已确认，任务恢复执行" : `已确认，剩余 ${result.remaining_confirmations} 项待处理`);
+      load();
+    } catch (error) {
+      if (error instanceof ApiError) message.error(`[${error.code}] ${error.message}`);
+    }
+  };
   const blocking = params.filter((item) => ["needs_review", "rejected"].includes(item.status));
 
   const openReview = (param: ParameterSummary) => {
@@ -323,12 +358,72 @@ export default function MissionDetail() {
 
   const paramsTab = (
     <Space direction="vertical" style={{ width: "100%" }} size="middle">
+      {(draftInputs.length > 0 || openAssumptions.length > 0) && (
+        <Card
+          size="small" title="待确认项（S4 设计输入门禁）"
+          extra={<Text type="secondary">
+            确认全部后任务自动恢复执行（评审人：{reviewer}）
+          </Text>}
+        >
+          {draftInputs.length > 0 && (
+            <>
+              <Text strong>设计输入草案（{draftInputs.length} 组，draft）</Text>
+              <List
+                size="small" dataSource={draftInputs}
+                renderItem={(item) => (
+                  <List.Item
+                    actions={[
+                      <Button key="accept" size="small" type="primary"
+                        onClick={() => confirmDraft(item.id)}>确认</Button>,
+                    ]}
+                  >
+                    <List.Item.Meta
+                      title={<Space>
+                        <Text code>{item.id}</Text>
+                        <Tag color="gold">draft</Tag>
+                        <Text>{item.name}</Text>
+                      </Space>}
+                      description="S4 模型建议值；确认后登记为已确认假设并进入计算"
+                    />
+                  </List.Item>
+                )}
+              />
+            </>
+          )}
+          {openAssumptions.length > 0 && (
+            <>
+              <Text strong>未确认假设（{openAssumptions.length} 条，open）</Text>
+              <List
+                size="small" dataSource={openAssumptions}
+                renderItem={(item) => (
+                  <List.Item
+                    actions={[
+                      <Button key="accept" size="small" type="primary"
+                        onClick={() => confirmAssumption(item.id)}>确认</Button>,
+                    ]}
+                  >
+                    <List.Item.Meta
+                      title={<Space>
+                        <Text code>{item.id}</Text>
+                        <Tag color="gold">open</Tag>
+                        <Text>{item.content}</Text>
+                      </Space>}
+                      description={`依据：${item.basis}`}
+                    />
+                  </List.Item>
+                )}
+              />
+            </>
+          )}
+        </Card>
+      )}
       <Space wrap>
         <Select
           style={{ width: 180 }} placeholder="按状态过滤" allowClear
           value={filters.status}
           onChange={(value) => setFilters((previous) => ({ ...previous, status: value }))}
-          options={["proposed", "needs_review", "verified", "rejected"].map((v) => ({ value: v, label: v }))}
+          options={["draft", "assumed", "proposed", "needs_review", "verified", "rejected"]
+            .map((v) => ({ value: v, label: v }))}
         />
         <Select
           style={{ width: 160 }} placeholder="按分系统过滤" allowClear
@@ -387,11 +482,19 @@ export default function MissionDetail() {
         />
       )}
       <Space>
+        <Select
+          style={{ width: 140 }} placeholder="文档版本" disabled={!detail.document.ready}
+          value={docVersion ?? detail.document.version ?? undefined}
+          onChange={(value) => { setDocVersion(value); loadPreview(value); }}
+          options={(detail.document.versions ?? []).map((v) => ({ value: v, label: `v${v}` }))}
+        />
         <Button
           type="primary" disabled={!detail.document.ready}
-          onClick={() => doDownload(() => api.downloadDocument(taskId), "Word 文档")}
+          onClick={() => doDownload(
+            () => api.downloadDocument(taskId, docVersion ?? detail.document.version), "Word 文档")}
         >
-          下载 Word {detail.document.ready ? `(v${detail.document.version})` : "（未就绪）"}
+          下载 Word {detail.document.ready
+            ? `(v${docVersion ?? detail.document.version})` : "（未就绪）"}
         </Button>
         <Button disabled={!report} onClick={() => doDownload(() => api.downloadCheckReport(taskId), "校验报告")}>
           下载校验报告
@@ -404,9 +507,10 @@ export default function MissionDetail() {
       )}
       <Card
         size="small"
-        title={`在线预览（Word → HTML）${detail.document.ready ? ` · v${detail.document.version}` : ""}`}
+        title={`在线预览（Word → HTML）${detail.document.ready ? ` · v${docVersion ?? detail.document.version}` : ""}`}
         extra={
-          <Button size="small" loading={previewLoading} disabled={!detail.document.ready} onClick={loadPreview}>
+          <Button size="small" loading={previewLoading} disabled={!detail.document.ready}
+            onClick={() => loadPreview(docVersion ?? undefined)}>
             重新加载
           </Button>
         }

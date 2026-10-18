@@ -15,6 +15,10 @@ class S1Output(_Loose):
     language: str = "zh"
 
 
+class S2Output(_Loose):
+    queries: list[str] = Field(min_length=1)
+
+
 class S3Output(_Loose):
     configuration: dict = Field(default_factory=dict)
     subsystems: list = Field(default_factory=list)
@@ -36,7 +40,7 @@ class S8Output(_Loose):
 
 
 VALIDATORS: dict[str, type[BaseModel]] = {
-    "S1": S1Output, "S3": S3Output, "S4": S4Output, "S8": S8Output,
+    "S1": S1Output, "S2": S2Output, "S3": S3Output, "S4": S4Output, "S8": S8Output,
 }
 
 

@@ -15,6 +15,65 @@ def client():
         yield test_client
 
 
+# ------------------------------------------------------------ 门禁驱动辅助
+
+
+def _wait_status(client, task_id: str, statuses: tuple[str, ...], limit: int = 200) -> dict:
+    detail: dict = {}
+    for _ in range(limit):
+        detail = client.get(f"/api/v1/missions/{task_id}", headers=HEADERS).json()
+        if detail["status"] in statuses:
+            return detail
+        time.sleep(0.05)
+    raise AssertionError(f"等待状态 {statuses} 超时：{detail.get('status')}")
+
+
+def _resolve_gate(client, task_id: str, *, include_needs_review: bool = True,
+                  reviewer: str = "tester") -> dict:
+    """处理当前门禁的待确认项：S4 草案输入、未确认假设，可选超限参数。"""
+    wanted = ("draft", "needs_review") if include_needs_review else ("draft",)
+    for _ in range(30):
+        detail = client.get(f"/api/v1/missions/{task_id}", headers=HEADERS).json()
+        if detail["status"] != "awaiting_gate":
+            return detail
+        acted = False
+        items = client.get(f"/api/v1/missions/{task_id}/parameters", headers=HEADERS,
+                           params={"page_size": 100}).json()["items"]
+        for item in items:
+            if item["status"] in wanted:
+                response = client.post(
+                    f"/api/v1/missions/{task_id}/parameters/{item['id']}/review",
+                    headers=HEADERS,
+                    json={"action": "accept", "reviewer": reviewer, "comment": "测试确认"},
+                )
+                assert response.status_code == 200, response.text
+                acted = True
+        assumptions = client.get(f"/api/v1/missions/{task_id}/assumptions", headers=HEADERS,
+                                 params={"status": "open"}).json()["items"]
+        for item in assumptions:
+            response = client.post(
+                f"/api/v1/missions/{task_id}/assumptions/{item['id']}/review",
+                headers=HEADERS, json={"action": "accept", "reviewer": reviewer})
+            assert response.status_code == 200, response.text
+            acted = True
+        if not acted:
+            return detail
+        time.sleep(0.05)
+    raise AssertionError("门禁待确认项未能在限定轮次内处理完")
+
+
+def _drive_to_terminal(client, task_id: str, limit: int = 200) -> dict:
+    """反复处理门禁，直到任务 succeeded / failed。"""
+    for _ in range(limit):
+        detail = client.get(f"/api/v1/missions/{task_id}", headers=HEADERS).json()
+        if detail["status"] in ("succeeded", "failed"):
+            return detail
+        if detail["status"] == "awaiting_gate":
+            _resolve_gate(client, task_id)
+        time.sleep(0.05)
+    raise AssertionError("任务未在限定轮次内结束")
+
+
 def test_healthz_no_auth(client):
     response = client.get("/api/v1/healthz")
     assert response.status_code == 200
@@ -37,12 +96,14 @@ def test_create_mission_and_complete(client):
     assert response.status_code == 202
     task_id = response.json()["task_id"]
 
-    detail = {}
-    for _ in range(120):
-        detail = client.get(f"/api/v1/missions/{task_id}", headers=HEADERS).json()
-        if detail["status"] in ("succeeded", "failed", "awaiting_gate"):
-            break
-        time.sleep(0.05)
+    detail = _wait_status(client, task_id, ("awaiting_gate", "failed", "succeeded"))
+    assert detail["status"] == "awaiting_gate"
+    assert detail["pending_gates"], "S4 之后应产生输入确认门禁"
+    assert detail["pending_gates"][0]["type"] == "confirm_inputs"
+    assert detail["pending_confirmations"]["draft_inputs"] == 6, detail
+    assert detail["pending_confirmations"]["open_assumptions"] >= 1
+
+    detail = _drive_to_terminal(client, task_id)
     assert detail["status"] == "succeeded", detail
 
     params = client.get(f"/api/v1/missions/{task_id}/parameters", headers=HEADERS).json()
@@ -68,6 +129,23 @@ def test_create_mission_and_complete(client):
     assert "卫星整星详细设计方案" in payload["html"]
     assert "<table>" in payload["html"]  # 预算表已转换为 HTML 表格
 
+    candidates = client.get(f"/api/v1/missions/{task_id}/candidates", headers=HEADERS)
+    assert candidates.status_code == 200
+    assert candidates.json()["total"] >= 4, "应生成选型候选（A15）"
+    assumptions = client.get(f"/api/v1/missions/{task_id}/assumptions", headers=HEADERS)
+    assert assumptions.status_code == 200
+    assert assumptions.json()["total"] >= 1
+
+    # A9 重新校验 → 文档版本递增（v1 → v2）
+    revalidate = client.post(f"/api/v1/missions/{task_id}/revalidate", headers=HEADERS,
+                             json={"scope": "all"})
+    assert revalidate.status_code == 200, revalidate.text
+    detail = client.get(f"/api/v1/missions/{task_id}", headers=HEADERS).json()
+    assert detail["document"]["versions"] == [1, 2], detail["document"]
+    second = client.get(f"/api/v1/missions/{task_id}/document", headers=HEADERS,
+                        params={"version": 2})
+    assert second.status_code == 200 and second.content[:2] == b"PK"
+
 
 def test_create_mission_rejects_unknown_provider(client):
     response = client.post("/api/v1/missions", headers=HEADERS,
@@ -77,7 +155,7 @@ def test_create_mission_rejects_unknown_provider(client):
 
 
 def test_gate_review_resumes_mission(client):
-    """门禁路径：mass_limit 超限 → awaiting_gate → A8 放行 → 自动恢复到 succeeded。"""
+    """门禁路径：输入确认 → 质量超限 → awaiting_gate → A8 放行 → 自动恢复到 succeeded。"""
     response = client.post(
         "/api/v1/missions",
         headers=HEADERS,
@@ -89,14 +167,24 @@ def test_gate_review_resumes_mission(client):
     assert response.status_code == 202
     task_id = response.json()["task_id"]
 
+    # 第一道门禁：输入确认（只确认输入，不放行后面的超限参数）
+    detail = _wait_status(client, task_id, ("awaiting_gate", "failed", "succeeded"))
+    assert detail["status"] == "awaiting_gate"
+    assert detail["pending_gates"][0]["type"] == "confirm_inputs"
+    _resolve_gate(client, task_id, include_needs_review=False)
+
+    # 第二道门禁：质量超限（V4 block）
     detail = {}
-    for _ in range(120):
+    for _ in range(200):
         detail = client.get(f"/api/v1/missions/{task_id}", headers=HEADERS).json()
-        if detail["status"] in ("awaiting_gate", "failed", "succeeded"):
+        if detail["status"] in ("succeeded", "failed"):
+            raise AssertionError(detail)
+        if (detail["status"] == "awaiting_gate"
+                and any(gate["type"] == "discrepancy_resolve" for gate in detail["pending_gates"])):
             break
         time.sleep(0.05)
     assert detail["status"] == "awaiting_gate", detail
-    assert detail["pending_gates"], "应存在待处理门禁"
+    assert detail["pending_confirmations"]["needs_review"] >= 1
     blocked_doc = client.get(f"/api/v1/missions/{task_id}/document", headers=HEADERS)
     assert blocked_doc.status_code == 409, "未放行前禁止导出"
 
@@ -107,13 +195,9 @@ def test_gate_review_resumes_mission(client):
     )
     assert review.status_code == 200, review.text
     assert review.json()["revalidation"]["queued"] is True
+    assert review.json()["gate"]["gate_id"], "全部确认完成后应关闭门禁"
 
-    detail = {}
-    for _ in range(120):
-        detail = client.get(f"/api/v1/missions/{task_id}", headers=HEADERS).json()
-        if detail["status"] in ("succeeded", "failed"):
-            break
-        time.sleep(0.05)
+    detail = _drive_to_terminal(client, task_id)
     assert detail["status"] == "succeeded", detail
     document = client.get(f"/api/v1/missions/{task_id}/document", headers=HEADERS)
     assert document.status_code == 200 and document.content[:2] == b"PK"

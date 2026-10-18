@@ -12,6 +12,8 @@ from app.config import settings
 from app.db import new_session
 from app.models import Mission, ReviewGate
 from app.orchestrator.events import bus
+from app.orchestrator.ids import next_gate_id
+from app.steps.common import unconfirmed_total
 from app.tracing import trace
 
 
@@ -134,6 +136,27 @@ async def run_mission(task_id: str, start_from: str = "S1") -> None:
         bus.publish(task_id, "step", {"step": code, "name": name, "status": "done",
                                       "duration_ms": duration})
 
+        if code == "S4":
+            # 输入确认门禁：S4 草案（draft）与未确认假设都必须人工处理后才允许进入计算
+            with new_session() as session:
+                pending = unconfirmed_total(session, task_id)
+            if pending:
+                existing = _pending_gate(task_id)
+                gate_id = existing["gate_id"] if existing else None
+                if gate_id is None:
+                    with new_session() as session:
+                        gate_id = next_gate_id(session, task_id)
+                        session.add(ReviewGate(id=gate_id, mission_id=task_id,
+                                               type="confirm_inputs", param_id=None, action=None))
+                        session.commit()
+                _set_status(task_id, status="awaiting_gate")
+                bus.publish(task_id, "gate", {"gate_id": gate_id, "type": "confirm_inputs",
+                                              "param_id": None,
+                                              "message": f"待确认设计输入 / 假设 {pending} 项"})
+                trace(task_id, {"step": "S10", "type": "gate", "status": "pending",
+                                "gate_id": gate_id, "param_id": None})
+                return
+
         if code == "S6":
             for finding in ctx.get("findings", []):
                 bus.publish(task_id, "validation", finding)
@@ -162,7 +185,13 @@ async def run_mission(task_id: str, start_from: str = "S1") -> None:
     trace(task_id, {"step": "S10", "type": "done", "status": "succeeded"})
 
 
+RESUME_FROM = {"S4": "S5", "S6": "S7"}
+
+
 def continue_mission(task_id: str) -> None:
-    """门禁处理完成后从 S7 恢复（由评审接口调用）。"""
+    """门禁处理完成后按暂停点恢复：输入门禁（S4）→ 从 S5 重算；校验门禁（S6）→ 从 S7 继续。"""
+    with new_session() as session:
+        mission = session.get(Mission, task_id)
+        paused_at = mission.current_step if mission else None
     _set_status(task_id, status="running")
-    return run_mission(task_id, start_from="S7")
+    return run_mission(task_id, start_from=RESUME_FROM.get(paused_at or "", "S7"))

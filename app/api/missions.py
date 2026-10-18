@@ -1,4 +1,4 @@
-"""任务接口（docs/07 §A1~A5、A9、A11、A12；A10 docx 下载待渲染接入后实现）。"""
+"""任务接口（docs/07 §A1~A5、A9~A13）。"""
 from __future__ import annotations
 
 import asyncio
@@ -13,7 +13,14 @@ from sqlalchemy import select
 
 from app.api.deps import api_error, require_token
 from app.db import new_session
-from app.models import DesignParameter, Mission, ReviewGate, ValidationResult
+from app.models import (
+    Assumption,
+    DesignParameter,
+    Mission,
+    ReviewGate,
+    SelectionCandidate,
+    ValidationResult,
+)
 from app.orchestrator import engine
 from app.orchestrator.events import bus
 from app.orchestrator.ids import next_mission_id
@@ -89,6 +96,23 @@ def _provider_model(provider_id: str | None) -> str | None:
         return None
 
 
+def _pending_confirmations(mission_id: str) -> dict:
+    with new_session() as session:
+        def count(model, *criteria) -> int:
+            return session.query(model).filter(*criteria).count()
+
+        return {
+            "draft_inputs": count(DesignParameter, DesignParameter.mission_id == mission_id,
+                                  DesignParameter.status == "draft"),
+            "open_assumptions": count(Assumption, Assumption.mission_id == mission_id,
+                                      Assumption.status == "open"),
+            "needs_review": count(DesignParameter, DesignParameter.mission_id == mission_id,
+                                  DesignParameter.status == "needs_review"),
+            "rejected": count(DesignParameter, DesignParameter.mission_id == mission_id,
+                              DesignParameter.status == "rejected"),
+        }
+
+
 def _detail_payload(mission_id: str) -> dict:
     with new_session() as session:
         mission = session.get(Mission, mission_id)
@@ -106,9 +130,11 @@ def _detail_payload(mission_id: str) -> dict:
             task_dir(mission_id).glob("document-v*.docx"),
             key=lambda p: int(p.stem.rsplit("-v", 1)[1]),
         )
+        versions = [int(p.stem.rsplit("-v", 1)[1]) for p in documents]
         document = {
             "ready": bool(documents),
-            "version": int(documents[-1].stem.rsplit("-v", 1)[1]) if documents else None,
+            "version": versions[-1] if versions else None,
+            "versions": versions,
             "url": f"/api/v1/missions/{mission_id}/document" if documents else None,
         }
         return {
@@ -122,6 +148,7 @@ def _detail_payload(mission_id: str) -> dict:
             "cost_estimate_cny": mission.cost_estimate_cny,
             "document": document,
             "pending_gates": pending,
+            "pending_confirmations": _pending_confirmations(mission_id),
             "last_error": mission.last_error,
             "corpus_version": mission.corpus_version,
             "created_at": _iso(mission.created_at),
@@ -361,3 +388,23 @@ def check_report(mission_id: str, _: None = Depends(require_token)) -> dict:
     if not path.exists():
         api_error(404, "DOC_NOT_FOUND", "校验报告尚未生成", {"task_id": mission_id})
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+# ------------------------------------------------------------ A15 选型候选
+
+
+@router.get("/missions/{mission_id}/candidates")
+def list_candidates(mission_id: str, _: None = Depends(require_token)) -> dict:
+    """选型候选清单（示例选型库，规则见 app/tools/catalog/select.py）。"""
+    _detail_payload(mission_id)
+    with new_session() as session:
+        rows = (session.query(SelectionCandidate)
+                .filter(SelectionCandidate.mission_id == mission_id)
+                .order_by(SelectionCandidate.id).all())
+        items = [
+            {"id": row.id, "category": row.category, "name": row.name, "vendor": row.vendor,
+             "params": dict(row.params or {}), "score": row.score, "reason": row.reason,
+             "source_ref": row.source_ref}
+            for row in rows
+        ]
+    return {"task_id": mission_id, "items": items, "total": len(items)}

@@ -14,6 +14,7 @@ class StubProvider:
     def chat_json(self, step: str, context: dict) -> tuple[dict, dict]:
         handler = {
             "S1": self._s1_parse,
+            "S2": self._s2_queries,
             "S3": self._s3_decompose,
             "S4": self._s4_params,
             "S8": self._s8_narrative,
@@ -50,6 +51,21 @@ class StubProvider:
             "clarifications": [],
             "language": "zh",
         }
+
+    # ------------------------------------------------------------- S2 检索式
+    @staticmethod
+    def _s2_queries(context: dict) -> dict:
+        mission = context.get("mission_request") or {}
+        goal = mission.get("goal", "") or "卫星总体设计"
+        constraints = mission.get("constraints") or {}
+        altitude = constraints.get("altitude_km")
+        suffix = f" {altitude}km" if altitude else ""
+        return {"queries": [
+            goal,
+            f"太阳翼 电源 电池 余量{suffix}".strip(),
+            "数据量 压缩 存储 下行 数传",
+            f"轨道 覆盖 重访 太阳同步{suffix}".strip(),
+        ]}
 
     # ------------------------------------------------------------- S3 分解
     @staticmethod

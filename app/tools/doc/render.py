@@ -13,7 +13,7 @@ from app.config import BASE_DIR
 TEMPLATE_DIR = BASE_DIR / "templates"
 
 # 各类参数展示小数位
-_DECIMALS = {"mass": 1, "power": 1, "data": 2}
+_DECIMALS = {"mass": 1, "power": 1, "data": 2, "adcs": 3}
 
 
 def format_value(param_id: str, value: float, unit: str) -> str:
@@ -30,6 +30,7 @@ def build_context(
     assumptions: list[dict],
     narrative: dict,
     citations: list[dict] | None = None,
+    candidates: list[dict] | None = None,
 ) -> dict:
     constraints = mission.get("constraints", {}) or {}
     context: dict = {
@@ -42,7 +43,17 @@ def build_context(
         "narrative": narrative,
         "citations": citations or [],
         "assumptions": assumptions,
-        "candidates": [],
+        "candidates": [
+            {
+                "category": item.get("category", ""),
+                "name": item.get("name", ""),
+                "vendor": item.get("vendor", ""),
+                "key_params": "；".join(f"{key}={value}" for key, value in (item.get("params") or {}).items()),
+                "reason": item.get("reason", ""),
+                "score": item.get("score", ""),
+            }
+            for item in (candidates or [])
+        ],
     }
 
     # 参数按 id 路径嵌套：power.sa.area → context["power"]["sa"]["area"]["value"]
@@ -60,7 +71,7 @@ def build_context(
 
     # 预算行（按前缀分组，来源保留计算记录 id）
     for prefix, key in (("mass", "mass_items"), ("power", "power_items"), ("data", "data_items"),
-                        ("orbit", "orbit_items"), ("link", "link_items")):
+                        ("orbit", "orbit_items"), ("link", "link_items"), ("adcs", "adcs_items")):
         context[key] = [
             {
                 "name": param["name"],

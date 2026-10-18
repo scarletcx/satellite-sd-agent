@@ -123,6 +123,8 @@
 | A11 | GET | `/missions/{id}/trace` | 导出 trace | jsonl / json |
 | A12 | GET | `/missions/{id}/check-report` | 下载校验报告 | 渲染自检结果 |
 | A13 | GET | `/missions/{id}/document/preview` | Word 在线预览 | docx → HTML（mammoth），前端直接渲染 |
+| A14 | GET/POST | `/missions/{id}/assumptions[/{asm_id}/review]` | 假设台账与确认 | 未确认假设阻断出稿（输入门禁） |
+| A15 | GET | `/missions/{id}/candidates` | 选型候选清单 | 示例选型库规则匹配（第 10 章数据源） |
 | B1 | POST | `/kb/search` | 检索调试 | 混合检索 |
 | B2 | POST | `/kb/ingest` | 语料摄取 | 解析 → 切分 → 向量入库 |
 | B3 | GET | `/kb/documents` | 语料列表 | 分页 |
@@ -328,11 +330,13 @@ data: {"gate_id":"g-003","type":"assumption_confirm","param_id":"mass.margin_pct
 
 - **请求**：`POST {{baseUrl}}/missions/t-20261005-001/parameters/mass.margin_pct/review`
 - **业务逻辑**：
-  1. 校验参数存在且状态为 `needs_review` / `proposed`（否则 409 `STATE_CONFLICT`）
-  2. `accept`：状态 → `verified`（如带 `edited_value` 先更新数值并版本 +1）
-  3. `reject`：状态 → `rejected`（`comment` 必填）
-  4. 写入 `review_gates` 与 `audit_log`
-  5. 自动触发受影响范围的重新校验（等价 A9），并推送 SSE `validation`
+  1. 校验参数存在且状态为 `draft` / `needs_review` / `proposed` / `rejected`（否则 409 `STATE_CONFLICT`）
+  2. `accept`：
+     - 分组草案（`input.*`，S4 设计输入）：状态 → `assumed`，并自动登记一条已确认假设（`source_ref` 指向该假设；分组输入不支持 `edited_value`）
+     - 普通参数：状态 → `verified`（如带 `edited_value` 先更新数值并版本 +1）
+  3. `reject`：状态 → `rejected`（`comment` 必填；被驳回的输入/参数会阻止任务恢复，需重新评审）
+  4. 写入 `audit_log`；门禁（`review_gates`）在**全部待确认项清零**时才关闭（`remaining_confirmations = 0`），关闭后自动恢复任务（输入门禁 → 从 S5 重算；校验门禁 → 从 S7 继续）
+  5. 参数超限被人工放行后，重新校验时 V4 降级为 warn（豁免留痕），不再重复阻断
 
 **请求体**
 
@@ -433,6 +437,22 @@ data: {"gate_id":"g-003","type":"assumption_confirm","param_id":"mass.margin_pct
 - **错误**：与 A10 一致（409 `DOC_NOT_READY` / 404 `DOC_NOT_FOUND`）
 
 ---
+
+### A14 假设台账与确认
+
+- **列表**：`GET {{baseUrl}}/missions/t-20261005-001/assumptions?status=open` → `{ items: [{id, content, basis, related_params, status, registered_by, confirmed_by, confirmed_at}], total }`
+- **确认**：`POST {{baseUrl}}/missions/t-20261005-001/assumptions/asm-0001/review`
+  - 请求体：`{ "action": "accept|reject", "reviewer": "engineer@example.com", "comment": "可选（reject 必填）" }`
+  - `accept` → 状态 `confirmed`；`reject` → `rejected`；两者都清除一个待确认项
+  - 响应：`{ "assumption_id": "asm-0001", "status": "confirmed", "gate": {...}|null, "remaining_confirmations": 0 }`
+  - 待确认项清零后自动关闭门禁并恢复任务
+
+### A15 选型候选清单
+
+- **请求**：`GET {{baseUrl}}/missions/t-20261005-001/candidates`
+- **业务逻辑**：读取选型库（`data/parts_catalog.json`，示例库）→ 按「满足指标约束、代价最小」规则打分（电池容量、太阳电池效率、角动量/磁矩需求、质量功耗代价）
+- **响应 200**：`{ task_id, items: [{id, category, name, vendor, params, score, reason, source_ref}], total }`
+- 候选清单同时作为文档第 10 章的数据源（S5 生成 → S9 渲染）
 
 ## 4. 知识库接口
 

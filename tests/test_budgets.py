@@ -1,6 +1,7 @@
-"""C1~C6 计算工具单元测试（期望值独立手算，docs/11 §1 L1）。"""
+"""C1~C7 计算工具单元测试（期望值独立手算，docs/11 §1 L1）。"""
 import pytest
 
+from app.tools.calc.adcs import AdcsInput, adcs_estimate
 from app.tools.calc.budgets import (
     DataInput,
     MassInput,
@@ -108,3 +109,20 @@ def test_eps_sizing_hand_calc():
     ))
     assert result.p_bol_w == pytest.approx(212.5, abs=0.5)
     assert result.sa_area_m2 == pytest.approx(0.748, abs=0.01)
+
+
+def test_adcs_estimate_hand_calc():
+    """手算：A=0.748 m²、cps=0.3、力臂 0.6 m、周期 94.6 min。
+
+    T_sp = 4.56e-6 × 0.748 × 1.3 × 0.6 ≈ 2.66e-6 N·m（2.66 µN·m）
+    T_total = 2 × T_sp ≈ 5.32 µN·m
+    H = 1.5 × T_total × 5676 s / π ≈ 0.0144 N·m·s
+    M = T_total / 2.5e-5 T ≈ 0.213 A·m²
+    """
+    result = adcs_estimate(AdcsInput(
+        sa_area_m2=0.748, mass_kg=90.0, arm_m=0.6, t_orbit_min=94.6,
+    ))
+    assert result.t_sp_unm == pytest.approx(2.66, abs=0.05)
+    assert result.t_total_unm == pytest.approx(5.32, abs=0.1)
+    assert result.h_required_nms == pytest.approx(0.0144, abs=0.0005)
+    assert result.mtq_dipole_am2 == pytest.approx(0.213, abs=0.005)

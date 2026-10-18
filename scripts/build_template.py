@@ -75,7 +75,14 @@ def build() -> Path:
 
     # 8 姿控
     doc.add_heading("8 姿态确定与控制方案", level=1)
-    doc.add_paragraph("姿态控制方案采用三轴稳定 + 反作用轮 + 磁力矩器（详细指标待姿控模块接入后补全）。")
+    doc.add_paragraph("采用三轴稳定 + 反作用轮 + 磁力矩器方案；以下为任务级粗算指标"
+                      "（光压扰动 → 轮组角动量需求 → 磁力矩器卸载能力），详细控制律与裕度待姿控专业设计：")
+    _loop_table(
+        doc,
+        ["项目", "数值", "单位", "来源"],
+        "it in adcs_items",
+        ["{{ it.name }}", "{{ it.value }}", "{{ it.unit }}", "{{ it.source_ref }}"],
+    )
 
     # 9 轨道与覆盖
     doc.add_heading("9 轨道与覆盖分析", level=1)
@@ -92,7 +99,13 @@ def build() -> Path:
 
     # 10 选型
     doc.add_heading("10 关键器件与选型建议", level=1)
-    doc.add_paragraph("{% if not candidates %}候选清单待知识库模块接入后生成。{% endif %}")
+    doc.add_paragraph("候选清单由选型库按「满足指标约束、代价最小」规则匹配生成（示例库，参数为公开资料量级）：")
+    _loop_table(
+        doc,
+        ["分系统", "候选", "供应商", "关键参数", "选择理由"], "c in candidates",
+        ["{{ c.category }}", "{{ c.name }}", "{{ c.vendor }}", "{{ c.key_params }}", "{{ c.reason }}"],
+    )
+    doc.add_paragraph("{% if not candidates %}（本次未匹配到候选，请检查选型库与输入约束）{% endif %}")
 
     # 11 风险
     doc.add_heading("11 风险分析", level=1)

@@ -6,7 +6,13 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import CalculationRecord, Mission, ReviewGate, ValidationResult
+from app.models import (
+    CalculationRecord,
+    Mission,
+    ReviewGate,
+    SelectionCandidate,
+    ValidationResult,
+)
 
 
 def _today() -> str:
@@ -43,3 +49,15 @@ def next_vr_ids(session: Session, mission_id: str, k: int) -> list[str]:
 def next_gate_id(session: Session, mission_id: str) -> str:
     base = _count(session, ReviewGate, mission_id)
     return f"g-{base + 1:03d}"
+
+
+def next_assumption_id(session: Session, mission_id: str) -> str:
+    from app.models import Assumption
+
+    base = _count(session, Assumption, mission_id)
+    return f"asm-{base + 1:04d}"
+
+
+def next_candidate_ids(session: Session, mission_id: str, k: int) -> list[str]:
+    base = _count(session, SelectionCandidate, mission_id)
+    return [f"sc-{base + i + 1:04d}" for i in range(k)]

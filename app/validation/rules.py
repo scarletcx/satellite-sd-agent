@@ -32,6 +32,11 @@ def v1_checks(params: list[dict], refs: dict | None = None) -> list[dict]:
     findings: list[dict] = []
     refs = refs or {}
     for p in params:
+        if p.get("status") in ("draft", "rejected"):
+            findings.append(_finding("V1", "block", p.get("id"),
+                                     f"参数状态为 {p['status']}，未完成人工确认",
+                                     field="status", got=p.get("status")))
+            continue
         if p.get("unit") not in UNIT_ENUM:
             findings.append(_finding("V1", "block", p.get("id"), f"单位不在枚举内：{p.get('unit')!r}",
                                      field="unit", got=p.get("unit")))
@@ -81,17 +86,142 @@ def v3_mass_margin(params: dict[str, float]) -> list[dict]:
     return [_finding("V3", status, "mass.margin_pct", message, margin=margin, threshold=MASS_MARGIN_MIN)]
 
 
-def v4_mass_limit(params: dict[str, float], constraints: dict) -> list[dict]:
-    """V4（lite）：整星质量上限约束。"""
+def v4_mass_limit(params: dict[str, float], constraints: dict,
+                  statuses: dict[str, str] | None = None) -> list[dict]:
+    """V4：整星质量上限约束。人工已放行（status=verified）的超限降级为 warn（豁免留痕）。"""
     limit = (constraints or {}).get("mass_limit_kg")
     if not limit or "mass.total_with_margin" not in params:
         return []
     actual = params["mass.total_with_margin"]
-    status = "pass" if actual <= limit else "block"
-    message = (f"整星质量（含余量）{actual:.2f} kg ≤ 上限 {limit} kg" if status == "pass"
-               else f"整星质量（含余量）{actual:.2f} kg 超出上限 {limit} kg")
+    waived = (statuses or {}).get("mass.total_with_margin") == "verified"
+    if actual <= limit:
+        status, message = "pass", f"整星质量（含余量）{actual:.2f} kg ≤ 上限 {limit} kg"
+    elif waived:
+        status, message = ("warn",
+                           f"整星质量（含余量）{actual:.2f} kg 超出上限 {limit} kg，"
+                           "已由人工评审放行（豁免记录见审计日志）")
+    else:
+        status, message = ("block",
+                           f"整星质量（含余量）{actual:.2f} kg 超出上限 {limit} kg")
     return [_finding("V4", status, "mass.total_with_margin", message,
-                     expected=limit, actual=actual, tolerance_pct=0.0)]
+                     expected=limit, actual=actual, tolerance_pct=0.0, waived=waived)]
+
+
+def v4_power_limit(params: dict[str, float], constraints: dict,
+                   statuses: dict[str, str] | None = None) -> list[dict]:
+    """V4：轨道平均功耗上限约束。人工已放行的超限降级为 warn（豁免留痕）。"""
+    limit = (constraints or {}).get("power_limit_w")
+    if not limit or "power.p_avg_w" not in params:
+        return []
+    actual = params["power.p_avg_w"]
+    waived = (statuses or {}).get("power.p_avg_w") == "verified"
+    if actual <= limit:
+        status, message = "pass", f"轨道平均功耗 {actual:.2f} W ≤ 上限 {limit} W"
+    elif waived:
+        status, message = ("warn",
+                           f"轨道平均功耗 {actual:.2f} W 超出上限 {limit} W，"
+                           "已由人工评审放行（豁免记录见审计日志）")
+    else:
+        status, message = ("block",
+                           f"轨道平均功耗 {actual:.2f} W 超出上限 {limit} W")
+    return [_finding("V4", status, "power.p_avg_w", message,
+                     expected=limit, actual=actual, tolerance_pct=0.0, waived=waived)]
+
+
+def _close(recorded: float, expected: float) -> float:
+    return abs(recorded - expected) / max(abs(expected), 1e-9)
+
+
+def v3_power_closure(params: dict[str, float], inputs: dict | None) -> list[dict]:
+    """V3：功耗链路闭合（阴影期能量 → 电池容量 → 轨道平均功耗）。"""
+    required = {"power.p_sun_w", "power.p_ecl_w", "power.p_avg_w",
+                "power.e_ecl_wh", "power.battery_capacity_wh"}
+    if not required <= params.keys():
+        return [_finding("V3", "block", "power.p_avg_w", "功耗预算缺少必要参数，无法执行闭合校验")]
+    power_input = ((inputs or {}).get("power") or {})
+    t_orbit = float(power_input.get("t_orbit_min") or 0)
+    t_ecl = float(power_input.get("t_ecl_min") or 0)
+    dod = float(power_input.get("dod") or 0)
+    eta = float(power_input.get("eta_out") or 0)
+
+    findings: list[dict] = []
+    if t_orbit > 0 and t_ecl > 0:
+        expected_avg = (params["power.p_sun_w"] * (t_orbit - t_ecl)
+                        + params["power.p_ecl_w"] * t_ecl) / t_orbit
+        diff = _close(params["power.p_avg_w"], expected_avg)
+        findings.append(_finding(
+            "V3", "pass" if diff <= TOLERANCE_PCT else "block", "power.p_avg_w",
+            f"轨道平均功耗闭合（记录 {params['power.p_avg_w']:.2f} W vs 加权 {expected_avg:.2f} W）",
+            expected=expected_avg, actual=params["power.p_avg_w"], diff_pct=diff * 100))
+
+        expected_energy = params["power.p_ecl_w"] * t_ecl / 60.0
+        diff = _close(params["power.e_ecl_wh"], expected_energy)
+        findings.append(_finding(
+            "V3", "pass" if diff <= TOLERANCE_PCT else "block", "power.e_ecl_wh",
+            f"阴影期能耗闭合（记录 {params['power.e_ecl_wh']:.3f} Wh vs 功率×时长 {expected_energy:.3f} Wh）",
+            expected=expected_energy, actual=params["power.e_ecl_wh"], diff_pct=diff * 100))
+
+        if dod > 0 and eta > 0:
+            expected_battery = params["power.e_ecl_wh"] / (dod * eta)
+            diff = _close(params["power.battery_capacity_wh"], expected_battery)
+            findings.append(_finding(
+                "V3", "pass" if diff <= TOLERANCE_PCT else "block", "power.battery_capacity_wh",
+                (f"电池容量闭合（记录 {params['power.battery_capacity_wh']:.2f} Wh vs "
+                 f"能耗/(DOD×效率) {expected_battery:.2f} Wh）"),
+                expected=expected_battery, actual=params["power.battery_capacity_wh"],
+                diff_pct=diff * 100))
+    return findings
+
+
+def v3_data_closure(params: dict[str, float], inputs: dict | None) -> list[dict]:
+    """V3：数据量链路闭合（单圈×每日圈次 = 每日；下行能力按速率×窗口；存储 ≥ 单圈）。"""
+    required = {"data.per_orbit_gb", "data.per_day_gb",
+                "data.downlink_capacity_gb", "data.storage_required_gb"}
+    if not required <= params.keys():
+        return [_finding("V3", "block", "data.per_day_gb", "数据量预算缺少必要参数，无法执行闭合校验")]
+    data_input = ((inputs or {}).get("data") or {})
+    findings: list[dict] = []
+
+    orbits = params.get("orbit.orbits_per_day") or float(data_input.get("orbits_per_day") or 0)
+    if orbits > 0:
+        expected_day = params["data.per_orbit_gb"] * orbits
+        diff = _close(params["data.per_day_gb"], expected_day)
+        findings.append(_finding(
+            "V3", "pass" if diff <= TOLERANCE_PCT else "block", "data.per_day_gb",
+            f"每日数据量闭合（记录 {params['data.per_day_gb']:.3f} Gb vs 单圈×圈次 {expected_day:.3f} Gb）",
+            expected=expected_day, actual=params["data.per_day_gb"], diff_pct=diff * 100))
+
+    rate = float(data_input.get("downlink_rate_mbps") or 0)
+    window = float(data_input.get("downlink_window_min_per_day") or 0)
+    if rate > 0 and window > 0:
+        expected_downlink = rate * window * 60.0 / 8000.0
+        diff = _close(params["data.downlink_capacity_gb"], expected_downlink)
+        findings.append(_finding(
+            "V3", "pass" if diff <= TOLERANCE_PCT else "block", "data.downlink_capacity_gb",
+            (f"下行能力闭合（记录 {params['data.downlink_capacity_gb']:.3f} Gb vs "
+             f"速率×窗口 {expected_downlink:.3f} Gb）"),
+            expected=expected_downlink, actual=params["data.downlink_capacity_gb"],
+            diff_pct=diff * 100))
+
+    if params["data.storage_required_gb"] < params["data.per_orbit_gb"]:
+        findings.append(_finding(
+            "V3", "block", "data.storage_required_gb",
+            (f"存储需求 {params['data.storage_required_gb']:.3f} Gb 小于单圈数据量 "
+             f"{params['data.per_orbit_gb']:.3f} Gb，无法保障过境间数据保持")))
+    return findings
+
+
+def v3_link_margin(params: dict[str, float], inputs: dict | None) -> list[dict]:
+    """V3：链路余量阈值检查（默认 ≥3 dB，可由输入覆盖）。"""
+    if "link.margin_db" not in params:
+        return []
+    threshold = float(((inputs or {}).get("link") or {}).get("min_margin_db") or 3.0)
+    margin = params["link.margin_db"]
+    status = "pass" if margin >= threshold else "block"
+    message = (f"链路余量 {margin:.2f} dB ≥ 阈值 {threshold:.1f} dB" if status == "pass"
+               else f"链路余量 {margin:.2f} dB 低于阈值 {threshold:.1f} dB")
+    return [_finding("V3", status, "link.margin_db", message,
+                     expected=threshold, actual=margin, tolerance_pct=0.0)]
 
 
 def v7_assumptions(assumptions: list[dict]) -> list[dict]:
@@ -109,19 +239,25 @@ def v7_assumptions(assumptions: list[dict]) -> list[dict]:
 
 def run_validation(params: list[dict], constraints: dict,
                    refs: dict | None = None, assumptions: list[dict] | None = None,
-                   records: list[dict] | None = None) -> list[dict]:
+                   records: list[dict] | None = None, inputs: dict | None = None) -> list[dict]:
     """执行全部已实现规则（按 V1→V7 顺序）；params 为参数 dict 列表（含 id/value/unit/source_*）。
 
     records = CalculationRecord 摘要（V2 独立重算 / V6 敏感性使用）。
+    inputs  = S4 落库的分组设计输入（V3 功耗/数据量闭合与链路阈值使用）。
     """
     values = {p["id"]: p["value"] for p in params}
+    statuses = {p["id"]: p.get("status") for p in params}
     findings: list[dict] = []
     findings += v1_checks(params, refs)
     if records is not None:
         findings += v2_recompute(records)
     findings += v3_mass_closure(values)
     findings += v3_mass_margin(values)
-    findings += v4_mass_limit(values, constraints)
+    findings += v3_power_closure(values, inputs)
+    findings += v3_data_closure(values, inputs)
+    findings += v3_link_margin(values, inputs)
+    findings += v4_mass_limit(values, constraints, statuses)
+    findings += v4_power_limit(values, constraints, statuses)
     findings += v5_history(values)
     findings += v6_sensitivity(records or [], constraints)
     findings += v7_assumptions(assumptions or [])

@@ -7,7 +7,7 @@ from __future__ import annotations
 from app.db import new_session
 from app.models import Assumption, CalculationRecord, DesignParameter, Mission, ReviewGate, ValidationResult
 from app.orchestrator.ids import next_gate_id, next_vr_ids
-from app.steps.common import load_params
+from app.steps.common import load_inputs, load_params
 from app.validation.rules import run_validation, summarize
 
 
@@ -33,7 +33,8 @@ def run(ctx: dict) -> dict:
             for a in session.query(Assumption).filter(Assumption.mission_id == mission_id).all()
         ]
         findings = run_validation(params, dict(mission.constraints or {}),
-                                  refs=refs, assumptions=assumptions, records=records)
+                                  refs=refs, assumptions=assumptions, records=records,
+                                  inputs=load_inputs(session, mission_id, require_confirmed=False))
 
         for vid, f in zip(next_vr_ids(session, mission_id, len(findings)), findings):
             session.add(ValidationResult(

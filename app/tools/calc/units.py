@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 UNIT_ENUM: tuple[str, ...] = (
-    "kg", "g", "m", "mm", "km", "m2",
+    "1", "kg", "g", "m", "mm", "km", "m2",
     "W", "kW", "Wh", "V", "Ah",
     "s", "min", "h", "day", "year",
     "bit", "Gb", "Gb/day", "Mbps",
     "dB", "dBW", "dBi", "dB/K", "Hz", "GHz",
-    "N", "N·m", "N·m·s", "kg·m2",
+    "N", "N·m", "N·m·s", "kg·m2", "A·m2", "T", "µN·m",
     "deg", "deg/day", "1/day", "%", "ppm",
 )
 

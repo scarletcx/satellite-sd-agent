@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: AI 卫星总体设计助手 API
-  version: 0.4.0
+  version: 0.5.0
   description: |
     由 `docs/07-api.md`（v0.2 细化版）生成，用途：**Apifox / Postman 直接导入进行手动测试**。
     - 本地 Base URL：`http://127.0.0.1:8000/api/v1`
@@ -436,6 +436,168 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+
+  /missions/{id}/assumptions:
+    parameters:
+      - $ref: '#/components/parameters/MissionId'
+    get:
+      operationId: listAssumptions
+      tags: [Parameters]
+      summary: 假设台账（A14）
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [open, confirmed, rejected] }
+      responses:
+        '200':
+          description: 假设列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Assumption' } }
+                  total: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /missions/{id}/assumptions/{assumption_id}/review:
+    parameters:
+      - $ref: '#/components/parameters/MissionId'
+      - name: assumption_id
+        in: path
+        required: true
+        schema: { type: string, pattern: '^asm-\d{4}$' }
+    post:
+      operationId: reviewAssumption
+      tags: [Parameters]
+      summary: 假设确认 / 驳回（A14）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action, reviewer]
+              properties:
+                action: { type: string, enum: [accept, reject] }
+                reviewer: { type: string }
+                comment: { type: string, description: reject 必填 }
+      responses:
+        '200':
+          description: 确认结果（剩余待确认项清零时关闭门禁并恢复任务）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssumptionReviewResult'
+              example:
+                assumption_id: asm-0001
+                status: confirmed
+                gate: null
+                remaining_confirmations: 0
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /missions/{id}/candidates:
+    parameters:
+      - $ref: '#/components/parameters/MissionId'
+    get:
+      operationId: listCandidates
+      tags: [Artifacts]
+      summary: 选型候选清单（A15）
+      description: 示例选型库（data/parts_catalog.json）规则匹配结果，同时是文档第 10 章的数据源。
+      responses:
+        '200':
+          description: 候选列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id: { type: string }
+                  total: { type: integer }
+                  items: { type: array, items: { $ref: '#/components/schemas/SelectionCandidate' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /settings/llm:
+    get:
+      operationId: getLlmSettings
+      tags: [Settings]
+      summary: 读取供应商设置（C3）
+      responses:
+        '200':
+          description: 当前供应商配置与运行模式
+          content:
+            application/json:
+              schema: { type: object }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      operationId: putLlmSettings
+      tags: [Settings]
+      summary: 保存供应商设置（C4，保存即生效）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                providers: { type: array, items: { type: object } }
+      responses:
+        '200':
+          description: 保存后的配置
+          content:
+            application/json:
+              schema: { type: object }
+        '400': { description: 请求体校验失败 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      operationId: resetLlmSettings
+      tags: [Settings]
+      summary: 恢复内置默认供应商配置（C5）
+      responses:
+        '200':
+          description: 重置后的配置
+          content:
+            application/json:
+              schema: { type: object }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /settings/llm/probe:
+    post:
+      operationId: probeProvider
+      tags: [Settings]
+      summary: 探测供应商可用模型列表（C6）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: 可用模型
+          content:
+            application/json:
+              schema: { type: object }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /settings/llm/test:
+    post:
+      operationId: testProvider
+      tags: [Settings]
+      summary: 测试供应商连通性（C7）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: 连通性测试结果
+          content:
+            application/json:
+              schema: { type: object }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /missions/{id}/trace:
     parameters:
@@ -1037,6 +1199,38 @@ components:
         warnings:
           type: array
           items: { type: string }
+
+    Assumption:
+      type: object
+      properties:
+        id: { type: string }
+        content: { type: string }
+        basis: { type: string }
+        related_params: { type: array, items: { type: string } }
+        status: { type: string, enum: [open, confirmed, rejected] }
+        registered_by: { type: string }
+        confirmed_by: { type: string, nullable: true }
+        confirmed_at: { type: string, nullable: true }
+
+    AssumptionReviewResult:
+      type: object
+      properties:
+        assumption_id: { type: string }
+        status: { type: string }
+        gate: { type: object, nullable: true }
+        remaining_confirmations: { type: integer }
+
+    SelectionCandidate:
+      type: object
+      properties:
+        id: { type: string }
+        category: { type: string }
+        name: { type: string }
+        vendor: { type: string }
+        params: { type: object }
+        score: { type: number }
+        reason: { type: string }
+        source_ref: { type: string }
 
     # ---------- 知识库 ----------
     Citation:

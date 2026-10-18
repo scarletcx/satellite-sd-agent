@@ -99,12 +99,29 @@ export interface MissionDetail {
   provider_model: string | null;
   steps: StepInfo[];
   cost_estimate_cny: number;
-  document: { ready: boolean; version: number | null; url: string | null };
+  document: { ready: boolean; version: number | null; versions: number[]; url: string | null };
   pending_gates: PendingGate[];
+  pending_confirmations: {
+    draft_inputs: number;
+    open_assumptions: number;
+    needs_review: number;
+    rejected: number;
+  };
   last_error: { code: string; message: string } | null;
   corpus_version: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface AssumptionItem {
+  id: string;
+  content: string;
+  basis: string;
+  related_params: string[];
+  status: string;
+  registered_by: string;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
 }
 
 export interface ParameterSummary {
@@ -203,12 +220,28 @@ export const api = {
 
   getCheckReport: (id: string) => request<CheckReport>(`/missions/${id}/check-report`),
 
+  assumptions: (id: string, status?: string) =>
+    request<{ items: AssumptionItem[]; total: number }>(
+      `/missions/${id}/assumptions${status ? `?status=${status}` : ""}`),
+
+  reviewAssumption: (
+    id: string,
+    assumptionId: string,
+    body: { action: "accept" | "reject"; reviewer: string; comment?: string },
+  ) =>
+    request<any>(`/missions/${id}/assumptions/${assumptionId}/review`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
   documentPreview: (id: string, version?: number) =>
     request<{ task_id: string; version: number; html: string; warnings: string[] }>(
       `/missions/${id}/document/preview${version ? `?version=${version}` : ""}`,
     ),
 
-  downloadDocument: (id: string) => download(`/missions/${id}/document`, `${id}-design.docx`),
+  downloadDocument: (id: string, version?: number | null) =>
+    download(`/missions/${id}/document${version ? `?version=${version}` : ""}`,
+      `${id}-design${version ? `-v${version}` : ""}.docx`),
   downloadTrace: (id: string) => download(`/missions/${id}/trace?format=jsonl`, `${id}-trace.jsonl`),
   downloadCheckReport: (id: string) =>
     download(`/missions/${id}/check-report`, `${id}-check-report.json`),

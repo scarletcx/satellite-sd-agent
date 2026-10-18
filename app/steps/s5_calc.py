@@ -5,10 +5,14 @@
 """
 from __future__ import annotations
 
+import json
+
 from app.db import new_session
-from app.models import CalculationRecord, Mission
-from app.orchestrator.ids import next_calc_ids
-from app.steps.common import load_params, upsert_parameter
+from app.models import CalculationRecord, Mission, SelectionCandidate
+from app.orchestrator.ids import next_calc_ids, next_candidate_ids
+from app.steps.common import load_inputs, load_params, upsert_parameter
+from app.tools.calc.adcs import AdcsInput, adcs_estimate
+from app.tools.catalog import select_candidates
 from app.tools.calc.budgets import (
     DataInput,
     MassInput,
@@ -21,29 +25,47 @@ from app.tools.calc.constants import FORMULA_VERSIONS
 from app.tools.calc.eps import EpsInput, eps_sizing
 from app.tools.calc.link import LinkInput, link_budget
 from app.tools.calc.orbit import OrbitInput, orbit_coverage
+from app.tracing import task_dir
 
 
 def run(ctx: dict) -> dict:
-    s4 = ctx["s4"]
     with new_session() as session:
         mission = session.get(Mission, ctx["task_id"])
         constraints = dict(mission.constraints or {})
+        # 输入来自 S4 落库的分组草案（要求已确认，未确认/被驳回会直接抛错）
+        inputs = load_inputs(session, ctx["task_id"])
+        ctx["s4"] = inputs
 
     # ---- C5 轨道与覆盖 ----
-    orbit_res = orbit_coverage(OrbitInput(**s4["orbit"]))
+    orbit_res = orbit_coverage(OrbitInput(**inputs["orbit"]))
     # ---- C1 质量 ----
-    mass_res = mass_budget(MassInput(**s4["mass"]))
+    mass_res = mass_budget(MassInput(**inputs["mass"]))
     # ---- C2 功耗 ----
-    power_res = power_budget(PowerInput(**s4["power"]))
+    power_res = power_budget(PowerInput(**inputs["power"]))
     # ---- C4 链路 ----
-    link_res = link_budget(LinkInput(**s4["link"]))
+    link_res = link_budget(LinkInput(**inputs["link"]))
     # ---- C6 太阳翼（EOL 功率 = 轨道平均功耗 + 阴影期再充电功率）----
     life_years = float(constraints.get("lifetime_years") or 3)
-    t_sun_h = max((s4["power"]["t_orbit_min"] - s4["power"]["t_ecl_min"]) / 60.0, 0.01)
+    t_sun_h = max((inputs["power"]["t_orbit_min"] - inputs["power"]["t_ecl_min"]) / 60.0, 0.01)
     p_eol = power_res.p_avg_w + power_res.e_ecl_wh / t_sun_h
-    eps_res = eps_sizing(EpsInput(p_eol_w=p_eol, life_years=life_years, **s4["eps"]))
+    eps_res = eps_sizing(EpsInput(p_eol_w=p_eol, life_years=life_years, **inputs["eps"]))
+    # ---- C7 姿控粗算（依赖 C1 质量、C5 周期、C6 太阳翼面积与包络力臂）----
+    system_design = ctx.get("system_design")
+    if not system_design:
+        design_path = task_dir(ctx["task_id"]) / "system-design.json"
+        if design_path.exists():
+            system_design = json.loads(design_path.read_text(encoding="utf-8"))
+    envelope_mm = ((system_design or {}).get("configuration") or {}).get("envelope_mm") or {}
+    arm_m = max([float(value) for value in envelope_mm.values()] or [1200.0]) / 2000.0
+    adcs_inputs = {
+        "sa_area_m2": eps_res.sa_area_m2,
+        "mass_kg": mass_res.total_with_margin_kg,
+        "arm_m": round(arm_m, 4),
+        "t_orbit_min": orbit_res.period_min,
+    }
+    adcs_res = adcs_estimate(AdcsInput(**adcs_inputs))
     # ---- C3 数据量（orbits_per_day 采用 C5 结果）----
-    data_input = dict(s4["data"])
+    data_input = dict(inputs["data"])
     data_input["orbits_per_day"] = round(orbit_res.orbits_per_day, 4)
     data_res = data_budget(DataInput(**data_input))
 
@@ -52,26 +74,29 @@ def run(ctx: dict) -> dict:
         "mass": mass_res.model_dump(),
         "power": power_res.model_dump(),
         "eps": eps_res.model_dump(),
+        "adcs": adcs_res.model_dump(),
         "data": data_res.model_dump(),
         "link": link_res.model_dump(),
     }
 
     mission_id = ctx["task_id"]
     with new_session() as session:
-        ids = next_calc_ids(session, mission_id, 6)
-        for rid, tool, inputs, outputs, units in (
-            (ids[0], "calc.orbit", s4["orbit"], orbit_res.model_dump(), {"orbit": "mixed"}),
-            (ids[1], "calc.mass_budget", s4["mass"], mass_res.model_dump(), {"mass": "kg"}),
-            (ids[2], "calc.power_budget", s4["power"], power_res.model_dump(), {"power": "W", "energy": "Wh"}),
-            (ids[3], "calc.eps", {"p_eol_w": p_eol, "life_years": life_years, **s4["eps"]},
+        ids = next_calc_ids(session, mission_id, 7)
+        for rid, tool, record_inputs, outputs, units in (
+            (ids[0], "calc.orbit", inputs["orbit"], orbit_res.model_dump(), {"orbit": "mixed"}),
+            (ids[1], "calc.mass_budget", inputs["mass"], mass_res.model_dump(), {"mass": "kg"}),
+            (ids[2], "calc.power_budget", inputs["power"], power_res.model_dump(), {"power": "W", "energy": "Wh"}),
+            (ids[3], "calc.eps", {"p_eol_w": p_eol, "life_years": life_years, **inputs["eps"]},
              eps_res.model_dump(), {"power": "W", "area": "m2"}),
-            (ids[4], "calc.data_budget", data_input, data_res.model_dump(), {"data": "Gb"}),
-            (ids[5], "calc.link_budget", s4["link"], link_res.model_dump(), {"link": "dB"}),
+            (ids[4], "calc.adcs", adcs_inputs, adcs_res.model_dump(),
+             {"torque": "µN·m", "momentum": "N·m·s", "dipole": "A·m2"}),
+            (ids[5], "calc.data_budget", data_input, data_res.model_dump(), {"data": "Gb"}),
+            (ids[6], "calc.link_budget", inputs["link"], link_res.model_dump(), {"link": "dB"}),
         ):
             session.add(CalculationRecord(
                 id=rid, mission_id=mission_id, tool=tool,
                 formula_version=FORMULA_VERSIONS[tool],
-                inputs=inputs, outputs=outputs, units_map=units,
+                inputs=record_inputs, outputs=outputs, units_map=units,
             ))
 
         # ---- C1 质量 ----
@@ -109,18 +134,32 @@ def run(ctx: dict) -> dict:
         upsert_parameter(session, mission_id, id="power.sa.area", name="太阳翼面积", value=eps_res.sa_area_m2,
                          unit="m2", source_type="calc", source_ref=ids[3], parent="power.sa")
 
+        # ---- C7 姿控粗算 ----
+        upsert_parameter(session, mission_id, id="adcs.t_sp_unm", name="太阳光压扰动力矩",
+                         value=adcs_res.t_sp_unm, unit="µN·m", source_type="calc",
+                         source_ref=ids[4], parent="adcs")
+        upsert_parameter(session, mission_id, id="adcs.t_total_unm", name="综合扰动力矩",
+                         value=adcs_res.t_total_unm, unit="µN·m", source_type="calc",
+                         source_ref=ids[4], parent="adcs", derived_from=["adcs.t_sp_unm"])
+        upsert_parameter(session, mission_id, id="adcs.h_required_nms", name="轮组角动量需求",
+                         value=adcs_res.h_required_nms, unit="N·m·s", source_type="calc",
+                         source_ref=ids[4], parent="adcs", derived_from=["adcs.t_total_unm"])
+        upsert_parameter(session, mission_id, id="adcs.mtq_dipole_am2", name="磁力矩器磁矩需求",
+                         value=adcs_res.mtq_dipole_am2, unit="A·m2", source_type="calc",
+                         source_ref=ids[4], parent="adcs", derived_from=["adcs.t_total_unm"])
+
         # ---- C3 数据量 ----
         upsert_parameter(session, mission_id, id="data.per_orbit_gb", name="单圈数据量", value=data_res.per_orbit_gb,
-                         unit="Gb", source_type="calc", source_ref=ids[4], parent="data")
+                         unit="Gb", source_type="calc", source_ref=ids[5], parent="data")
         upsert_parameter(session, mission_id, id="data.per_day_gb", name="每日数据量", value=data_res.per_day_gb,
-                         unit="Gb", source_type="calc", source_ref=ids[4], parent="data",
+                         unit="Gb", source_type="calc", source_ref=ids[5], parent="data",
                          derived_from=["data.per_orbit_gb"])
         upsert_parameter(session, mission_id, id="data.downlink_capacity_gb", name="下行能力",
                          value=data_res.downlink_capacity_gb, unit="Gb", source_type="calc",
-                         source_ref=ids[4], parent="data")
+                         source_ref=ids[5], parent="data")
         upsert_parameter(session, mission_id, id="data.storage_required_gb", name="存储需求",
                          value=data_res.storage_required_gb, unit="Gb", source_type="calc",
-                         source_ref=ids[4], parent="data",
+                         source_ref=ids[5], parent="data",
                          derived_from=["data.per_orbit_gb", "data.downlink_capacity_gb"])
 
         # ---- C5 轨道与覆盖 ----
@@ -146,15 +185,31 @@ def run(ctx: dict) -> dict:
 
         # ---- C4 链路 ----
         upsert_parameter(session, mission_id, id="link.fs_loss_db", name="自由空间损耗", value=link_res.fs_loss_db,
-                         unit="dB", source_type="calc", source_ref=ids[5], parent="link")
+                         unit="dB", source_type="calc", source_ref=ids[6], parent="link")
         upsert_parameter(session, mission_id, id="link.ebn0_db", name="比特信噪比", value=link_res.ebn0_db,
-                         unit="dB", source_type="calc", source_ref=ids[5], parent="link")
+                         unit="dB", source_type="calc", source_ref=ids[6], parent="link")
         upsert_parameter(session, mission_id, id="link.margin_db", name="链路余量", value=link_res.margin_db,
-                         unit="dB", source_type="calc", source_ref=ids[5], parent="link",
+                         unit="dB", source_type="calc", source_ref=ids[6], parent="link",
                          derived_from=["link.ebn0_db"])
         session.commit()
 
     with new_session() as session:
         ctx["params"] = load_params(session, mission_id)
 
-    return {"type": "tool", "output_ref": ids[0], "calc_records": ids}
+    # ---- 选型候选（示例选型库；规则见 app/tools/catalog/select.py）----
+    param_values = {param["id"]: param["value"] for param in ctx["params"]}
+    candidates = select_candidates(param_values, inputs)
+    if candidates:
+        with new_session() as session:
+            sc_ids = next_candidate_ids(session, mission_id, len(candidates))
+            for candidate_id, item in zip(sc_ids, candidates):
+                session.add(SelectionCandidate(
+                    id=candidate_id, mission_id=mission_id, category=item["category"],
+                    name=item["name"], vendor=item["vendor"], params=item["params"],
+                    score=item["score"], reason=item["reason"], source_ref=item["source_ref"],
+                ))
+            session.commit()
+    ctx["candidates"] = candidates
+
+    return {"type": "tool", "output_ref": ids[0], "calc_records": ids,
+            "candidates": len(candidates)}

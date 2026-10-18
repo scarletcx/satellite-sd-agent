@@ -68,6 +68,19 @@ def recompute(tool: str, inputs: dict) -> dict[str, float]:
         return {"fs_loss_db": fs_loss, "ebn0_db": ebn0,
                 "margin_db": ebn0 - float(inputs["required_ebn0_db"])}
 
+    if tool == "calc.adcs":
+        t_sp_nm = (4.56e-6 * float(inputs["sa_area_m2"])
+                   * (1 + float(inputs.get("cps", 0.3))) * float(inputs["arm_m"]))
+        t_total_nm = float(inputs.get("k_other", 2.0)) * t_sp_nm
+        h_required = (float(inputs.get("margin", 1.5)) * t_total_nm
+                      * float(inputs["t_orbit_min"]) * 60.0 / math.pi)
+        return {
+            "t_sp_unm": t_sp_nm * 1e6,
+            "t_total_unm": t_total_nm * 1e6,
+            "h_required_nms": h_required,
+            "mtq_dipole_am2": t_total_nm / 2.5e-5,
+        }
+
     if tool == "calc.orbit":
         semi_major = RE_KM + float(inputs["alt_km"])
         period_min = 2 * math.pi * math.sqrt(semi_major**3 / MU_EARTH_KM3_S2) / 60.0

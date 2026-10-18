@@ -19,11 +19,12 @@ from app.providers.step_schemas import validate_step
 
 STEP_PROMPTS = {
     "S1": "s1_parse/parse.v1.md",
+    "S2": "s2_retrieve/retrieve.v1.md",
     "S3": "s3_decompose/decompose.v1.md",
     "S4": "s4_params/params.v1.md",
     "S8": "s8_narrative/narrative.v1.md",
 }
-STEP_TEMPERATURES = {"S1": 0.2, "S3": 0.3, "S4": 0.1, "S8": 0.6}
+STEP_TEMPERATURES = {"S1": 0.2, "S2": 0.2, "S3": 0.3, "S4": 0.1, "S8": 0.6}
 REPAIR_RETRIES = 2
 
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.S)

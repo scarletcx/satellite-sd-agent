@@ -19,6 +19,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 # 轻量列迁移（演示级）：create_all 不会为既有表补列
 _COLUMN_MIGRATIONS = (
     ("missions", "provider_id", "VARCHAR(32)"),
+    ("design_parameters", "payload", "JSON"),
 )
 
 
