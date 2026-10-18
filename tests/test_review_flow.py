@@ -110,17 +110,6 @@ def test_chat_can_accept_all_latest_mission(client):
     assert detail["status"] == "succeeded", detail
 
 
-def test_model_context_window_hints():
-    from app.providers.model_info import context_window_for_model
-
-    assert context_window_for_model("gpt-4o-mini") == 128_000
-    assert context_window_for_model("gpt-4.1") == 1_000_000
-    assert context_window_for_model("claude-sonnet-4-5") == 200_000
-    assert context_window_for_model("qwen-plus") == 131_072
-    assert context_window_for_model("deepseek-flash") == 1_000_000
-    assert context_window_for_model("custom-256k") == 262_144
-
-
 def test_context_settings_default_and_command_removed(client):
     settings = client.get("/api/v1/settings/chat", headers=HEADERS).json()
     assert settings["default_window"] == 256_000

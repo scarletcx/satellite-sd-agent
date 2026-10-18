@@ -142,9 +142,8 @@ export EMBEDDING_MODEL=BAAI/bge-m3      # 可选
   压缩策略：保留目标/约束、关键数字与结论、未解决问题与偏好；丢弃寒暄与冗余解释（提示词 `chat_compact`）。
 - **使用率展示**：`GET /chat/sessions/{id}/context` 返回估算 tokens、窗口、百分比、已折叠位置；
   聊天界面实时显示；token 为估算值。
-- **上下文窗口**：以 **k tokens** 为单位（默认 256k，设置页可改）。供应商 `/models` 不提供窗口字段，
-  系统按「内置模型表 + 模型名推断」给出参考（如 deepseek-flash=1M、gpt-4o=128k、claude=200k），
-  仅作参考，最终以这里的设置为准。
+- **上下文窗口**：以 **k tokens** 为单位（默认 256k，设置页可改）。供应商 `/models` 不返回窗口字段，
+  因此不做推断展示，请按所选模型的最大窗口自行填写；该设置是压缩阈值与使用率的计算基准。
 - **长期记忆**：`user_memories` 表只保存跨会话有效的偏好/习惯/背景信息（不保存原始对话）；
   每累计 10 条消息自动抽取（`chat_memory` 提示词），也可 `/remember`；对话时注入提示词。
 - 模型切换与推理强度：会话级 `provider_id/model/reasoning_effort`，随每次模型调用透传。

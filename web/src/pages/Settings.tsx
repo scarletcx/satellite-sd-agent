@@ -20,8 +20,6 @@ export default function Settings() {
   const [busy, setBusy] = useState<string>("");
   const [chatSettings, setChatSettings] = useState<ChatSettings | null>(null);
   const [savingChat, setSavingChat] = useState(false);
-  const [modelContexts, setModelContexts] = useState<Record<string, Record<string, number | null>>>({});
-  const [maxWindowByProvider, setMaxWindowByProvider] = useState<Record<string, number | null>>({});
 
   const apply = (data: LlmSettings) => {
     setSettings(data);
@@ -76,8 +74,6 @@ export default function Settings() {
       if (result.ok) {
         if (Array.isArray(result.models) && result.models.length) {
           setModelsById((prev) => ({ ...prev, [key]: result.models }));
-          setModelContexts((prev) => ({ ...prev, [key]: result.model_contexts ?? {} }));
-          setMaxWindowByProvider((prev) => ({ ...prev, [key]: result.max_context_window ?? null }));
           message.success(`连接成功（${result.latency_ms} ms，发现 ${result.models.length} 个模型，可从下拉选择）`);
         } else {
           message.success(`连接成功（${result.latency_ms} ms）`);
@@ -315,21 +311,9 @@ export default function Settings() {
                   value={row.model || undefined}
                   placeholder="先点「拉取模型」，再从下拉选择"
                   options={(modelsById[key] ?? (row.model ? [row.model] : []))
-                    .map((model) => ({
-                      value: model,
-                      label: `${model}${modelContexts[key]?.[model]
-                        ? `（${(modelContexts[key][model]! / 1000).toFixed(0)}k）` : ""}`,
-                    }))}
+                    .map((model) => ({ value: model, label: model }))}
                   onChange={(value) => update(index, { model: value ?? "" })}
                 />
-                {row.model && modelContexts[key]?.[row.model] && (
-                  <Tag color="blue">
-                    最大上下文 {(modelContexts[key][row.model]! / 1000).toFixed(0)}k
-                  </Tag>
-                )}
-                {!modelContexts[key]?.[row.model] && maxWindowByProvider[key] && (
-                  <Tag>参考最大窗口 {(maxWindowByProvider[key]! / 1000).toFixed(0)}k</Tag>
-                )}
               </Space>
               <Space wrap>
                 <span>API Key</span>
@@ -346,13 +330,6 @@ export default function Settings() {
                 <span>超时(s)</span>
                 <InputNumber size="small" style={{ width: 80 }} min={5} max={600} value={row.timeout_s}
                   onChange={(value) => update(index, { timeout_s: Number(value ?? 120) })} />
-                {maxWindowByProvider[key] && chatSettings && (
-                  <Button size="small" onClick={() => setChatSettings({
-                    ...chatSettings, default_window: maxWindowByProvider[key]!,
-                  })}>
-                    用该模型最大窗口（{(maxWindowByProvider[key]! / 1000).toFixed(0)}k）填充上下文窗口
-                  </Button>
-                )}
                 <span>价格/1K(¥)</span>
                 <InputNumber size="small" style={{ width: 90 }} min={0} step={0.001} value={row.price_in}
                   onChange={(value) => update(index, { price_in: Number(value ?? 0) })} />

@@ -56,7 +56,13 @@ def run(ctx: dict) -> dict:
         if design_path.exists():
             system_design = json.loads(design_path.read_text(encoding="utf-8"))
     envelope_mm = ((system_design or {}).get("configuration") or {}).get("envelope_mm") or {}
-    arm_m = max([float(value) for value in envelope_mm.values()] or [1200.0]) / 2000.0
+    dims = []
+    for value in envelope_mm.values() if isinstance(envelope_mm, dict) else []:
+        try:
+            dims.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    arm_m = (max(dims) if dims else 1200.0) / 2000.0
     adcs_inputs = {
         "sa_area_m2": eps_res.sa_area_m2,
         "mass_kg": mass_res.total_with_margin_kg,

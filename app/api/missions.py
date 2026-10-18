@@ -309,9 +309,13 @@ async def revalidate(mission_id: str, body: RevalidateBody | None = None,
             api_error(404, "MISSION_NOT_FOUND", "任务不存在", {"task_id": mission_id})
         if mission.status == "canceled":
             api_error(409, "STATE_CONFLICT", "任务已取消", {"status": mission.status})
+        # 计算步骤从未完成（如 S5 中途失败）时从 S5 重跑，否则只做校验
+        has_calc = session.query(DesignParameter).filter(
+            DesignParameter.mission_id == mission_id,
+            DesignParameter.id == "mass.dry").count() > 0
 
     # 骨架阶段：桩模式下毫秒级，直接同步执行（真实模型接入后改为后台任务）
-    await engine.run_mission(mission_id, start_from="S6")
+    await engine.run_mission(mission_id, start_from="S6" if has_calc else "S5")
 
     with new_session() as session:
         latest = (session.query(ValidationResult)
