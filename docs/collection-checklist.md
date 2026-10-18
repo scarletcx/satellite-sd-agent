@@ -31,8 +31,8 @@
 
 ## A. 手册与教材（P0）
 
-- [ ] NASA Systems Engineering Handbook（SP-2016-6105 Rev2）— <https://science.nasa.gov/wp-content/uploads/2023/04/nasa_systems_engineering_handbook_0.pdf>
-- [ ] NASA Risk Management Handbook（SP-2011-3422）— <https://www.nasa.gov/wp-content/uploads/2023/08/nasa-risk-mgmt-handbook.pdf>
+- [x] NASA Systems Engineering Handbook（SP-2016-6105 Rev2）— <https://science.nasa.gov/wp-content/uploads/2023/04/nasa_systems_engineering_handbook_0.pdf>
+- [x] NASA Risk Management Handbook（SP-2011-3422）— <https://www.nasa.gov/wp-content/uploads/2023/08/nasa-risk-mgmt-handbook.pdf>
 - [ ] NASA Risk Management Handbook v2（NTRS 页面）— <https://ntrs.nasa.gov/citations/20240014019>
 - [ ] Basics of Space Flight（在线教程，可存快照）— <https://science.nasa.gov/learn/basics-of-space-flight/>
 - [ ] MIT OCW 16.851 Satellite Engineering 全套讲义 — <https://ocw.mit.edu/courses/16-851-satellite-engineering-fall-2003/download/>
@@ -43,7 +43,7 @@
 
 - [ ] NASA SST-SOA 年度报告 PDF（官网首页可换最新版）— <https://www.nasa.gov/wp-content/uploads/2026/05/soa-2026.pdf>
 - [ ] SST-SOA 各章节网页（逐章保存，含器件表格）— <https://www.nasa.gov/smallsat-institute/sst-soa/>
-- [ ] CubeSat 101 — <https://science.nasa.gov/wp-content/uploads/2023/06/nasa_csli_cubesat_101_508.pdf>
+- [x] CubeSat 101 — <https://science.nasa.gov/wp-content/uploads/2023/06/nasa_csli_cubesat_101_508.pdf>
 - [ ] Cal Poly CubeSat Design Specification Rev 14 — <https://www.nasa.gov/wp-content/uploads/2018/01/cubesatdesignspecificationrev14_12022-02-09.pdf>
 - [ ] Cal Poly CDS 最新版本 — <https://www.cubesat.org/cds-announcement>
 - [ ] eoPortal 任务库（挑 20~30 个典型型号存档）— <https://www.eoportal.org/satellite-missions>

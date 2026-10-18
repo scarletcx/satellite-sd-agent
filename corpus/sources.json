@@ -1,0 +1,32 @@
+{
+  "note": "语料抓取清单：仅收录明确允许公开下载/再分发的来源。NASA 文档为美国政府作品（公有领域）；其余条目需人工确认许可。抓取产物落在 corpus/raw/（不入库）。",
+  "sources": [
+    {
+      "id": "nasa-se-handbook",
+      "title": "NASA Systems Engineering Handbook (SP-2016-6105 Rev2)",
+      "url": "https://science.nasa.gov/wp-content/uploads/2023/04/nasa_systems_engineering_handbook_0.pdf",
+      "license": "NASA-public-domain",
+      "module": "system",
+      "doc_type": "manual",
+      "filename": "nasa-se-handbook.pdf"
+    },
+    {
+      "id": "nasa-risk-handbook",
+      "title": "NASA Risk Management Handbook (SP-2011-3422)",
+      "url": "https://www.nasa.gov/wp-content/uploads/2023/08/nasa-risk-mgmt-handbook.pdf",
+      "license": "NASA-public-domain",
+      "module": "risk",
+      "doc_type": "manual",
+      "filename": "nasa-risk-handbook.pdf"
+    },
+    {
+      "id": "cubesat-101",
+      "title": "CubeSat 101 (NASA CSLI)",
+      "url": "https://science.nasa.gov/wp-content/uploads/2023/06/nasa_csli_cubesat_101_508.pdf",
+      "license": "NASA-public-domain",
+      "module": "system",
+      "doc_type": "manual",
+      "filename": "cubesat-101.pdf"
+    }
+  ]
+}

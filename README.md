@@ -18,6 +18,7 @@ make test                   # 单元 + 流水线 + API 冒烟（61 个用例全�
 
 # 4) 常用脚本
 make seed                   # 导入种子语料（幂等）
+make corpus-fetch           # 抓取开放许可语料（NASA 公开文档；产物在 corpus/raw/，不入库）
 make demo-adv               # ADV-01 拦截演示：无计算依据的数字被校验层拦下（导出返回 409）
 make reference              # 生成 V5 历史对比参考分布（基于 UCS 公开卫星数据）
 make snapshot TASK=<task_id>    # 导出任务全量快照（zip）
@@ -101,7 +102,7 @@ artifacts/        # 任务运行产物存档（Word 方案文档、反向校验�
 | 模块 | 当前实现（工程原型 demo） | 生产落地演进目标 |
 |---|---|---|
 | 数据库存储 | 本地 SQLite（支持通过环境变量无缝切换 PostgreSQL） | PostgreSQL 16 + pgvector 原生扩展（docs/08） |
-| 文本向量检索 | 开发默认 hashing（零依赖、可离线）；`EMBEDDING_BACKEND=bge-m3` 即切换 sentence-transformers（1024 维，已实现，跨后端混用有维度守卫）；SQLite JSON 全量扫描 | PostgreSQL 16 + pgvector + HNSW（步骤见 docs/04 §9.1） |
+| 文本向量检索 | 已抓取并入库 3 份 NASA 公开文档（3 份 / 3037 chunks，`make corpus-fetch`）；默认 hashing 后端（零依赖、同语言检索）；`EMBEDDING_BACKEND=bge-m3` 即切换 sentence-transformers（1024 维，跨语言；已实现，跨后端混用有维度守卫）；SQLite JSON 全量扫描 | PostgreSQL 16 + pgvector + HNSW（步骤见 docs/04 §9.1） |
 | 大语言模型 | 支持任意第三方网关与本地模型接入，前端设置页热修改，具备自动降级链、用量审计与任务级指定模型功能，已调通真实 API | 生产环境私有化高可用模型集群与专网网关路由（ADR-0002 / ADR-0006） |
 | 确定性计算 | C1~C7 全部实现，包含质量、功耗、数据量、链路余量、轨道覆盖（解析模型 + skyfield/SGP4 交叉验证）、太阳翼推导与姿控粗算 | 扩展摄动全模型与高精度定轨；主路径可替换为库实现（ADR-0004） |
 | 一致性校验 | V1~V7 规则集全部落地：溯源与引用完整性（未确认输入直接阻断）、六类计算独立复算 + 轨道第三方库交叉验证、质量/功耗/数据量闭合、链路余量阈值、质量与功耗硬约束（人工放行转为豁免 warn）、UCS 历史基线与敏感性分析 | 扩展更多分系统（姿控、热控）的详细物理闭合约束与经验数据库 |

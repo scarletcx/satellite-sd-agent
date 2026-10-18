@@ -2,7 +2,7 @@ VENV := .venv
 PY   := $(VENV)/bin/python
 PIP  := $(VENV)/bin/pip
 
-.PHONY: install install-deps run test test-unit test-api check template seed demo-adv snapshot cost-report reference
+.PHONY: install install-deps run test test-unit test-api check template seed corpus-fetch demo-adv snapshot cost-report reference
 
 install: install-deps
 	python3 -m venv $(VENV) 2>/dev/null || true
@@ -17,6 +17,9 @@ template:
 
 seed:
 	$(PY) scripts/seed.py
+
+corpus-fetch:
+	$(PY) scripts/fetch_corpus.py
 
 demo-adv:
 	$(PY) scripts/demo_adv.py

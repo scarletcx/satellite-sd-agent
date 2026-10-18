@@ -123,6 +123,8 @@ export EMBEDDING_MODEL=BAAI/bge-m3      # 可选
 - 两种后端维度均为 1024；切换后需**重新摄取**语料
 - 维度不一致的旧 chunk 在检索时会被跳过，响应里带 `dim_mismatch` 计数与提示，不会拿哈希向量去比语义向量
 - `GET /kb/stats` 返回当前 `embedding_model` / `embedding_dim` / `embedding_backend`
+- **跨语言限制**：hashing 后端只做字面匹配，中文查询无法命中英文语料（NASA 文档等）；跨语言检索需切到 bge-m3（多语种）
+- 真实语料抓取：`corpus/sources.json` + `make corpus-fetch`（只收录明确允许公开下载的来源；已抓取 3 份 NASA 公有领域文档，共 3037 chunks）
 
 **pgvector 落地（需 Postgres 环境，代码接口已预留）**
 
