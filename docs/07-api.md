@@ -125,6 +125,7 @@
 | A13 | GET | `/missions/{id}/document/preview` | Word 在线预览 | docx → HTML（mammoth），前端直接渲染 |
 | A14 | GET/POST | `/missions/{id}/assumptions[/{asm_id}/review]` | 假设台账与确认 | 未确认假设阻断出稿（输入门禁） |
 | A15 | GET | `/missions/{id}/candidates` | 选型候选清单 | 示例选型库规则匹配（第 10 章数据源） |
+| A16 | POST | `/missions/{id}/reviews/accept-all` | 一键确认全部待处理项 | 草案输入/假设/待评审参数（含超限豁免） |
 | B1 | POST | `/kb/search` | 检索调试 | 混合检索 |
 | B2 | POST | `/kb/ingest` | 语料摄取 | 解析 → 切分 → 向量入库 |
 | B3 | GET | `/kb/documents` | 语料列表 | 分页 |
@@ -468,6 +469,25 @@ data: {"gate_id":"g-003","type":"assumption_confirm","param_id":"mass.margin_pct
 - **业务逻辑**：读取选型库（`data/parts_catalog.json`，示例库）→ 按「满足指标约束、代价最小」规则打分（电池容量、太阳电池效率、角动量/磁矩需求、质量功耗代价）
 - **响应 200**：`{ task_id, items: [{id, category, name, vendor, params, score, reason, source_ref}], total }`
 - 候选清单同时作为文档第 10 章的数据源（S5 生成 → S9 渲染）
+
+### A16 一键确认全部待处理项
+
+- **请求**：`POST {{baseUrl}}/missions/t-20261005-001/reviews/accept-all`
+- **请求体**：`{ "reviewer": "engineer@example.com", "comment": "可选" }`
+- **业务逻辑**：依次接受 `draft` / `needs_review` / `rejected` 参数（草案输入按当前 JSON 值确认）与
+  所有 `open` 假设；待确认项清零后关闭门禁并恢复任务（校验门禁放行后重跑 S6）
+- **响应**：
+
+```json
+{ "mission_id": "t-20261005-001", "accepted_parameters": 8,
+  "accepted_assumptions": 3, "remaining_confirmations": 0,
+  "gate": { "gate_id": "g-001", "action": "accept", "reviewer": "engineer@example.com" },
+  "revalidation": { "queued": true } }
+```
+
+- **A8 补充**：`accept` 分组草案（`input.*`）可通过 `edited_payload`（JSON）修改整组设计输入，
+  后端按对应分组的输入模型校验；`reject` 参数或假设会把任务置为 `failed`（`REVIEW_REJECTED`），
+  不再停留在门禁。
 
 ## 3.5 个人 agent 会话接口（D1~D10）
 

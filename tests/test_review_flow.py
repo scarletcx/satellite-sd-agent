@@ -1,0 +1,131 @@
+"""评审增强测试：一键确认、草案参数编辑、驳回终止、模型窗口参考、命令调整。"""
+import time
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.main import app
+
+HEADERS = {"Authorization": "Bearer test-token"}
+
+
+@pytest.fixture(scope="module")
+def client():
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+def _create(client, mass_limit=80) -> str:
+    return client.post("/api/v1/missions", headers=HEADERS, json={
+        "goal": "设计一颗 500km SSO 光学遥感小卫星",
+        "constraints": {"orbit_type": "SSO", "altitude_km": 500, "mass_limit_kg": mass_limit},
+    }).json()["task_id"]
+
+
+def _wait(client, task_id: str, statuses=("awaiting_gate", "succeeded", "failed"),
+          timeout_s: float = 8.0) -> dict:
+    deadline = time.time() + timeout_s
+    detail: dict = {}
+    while time.time() < deadline:
+        detail = client.get(f"/api/v1/missions/{task_id}", headers=HEADERS).json()
+        if detail["status"] in statuses:
+            return detail
+        time.sleep(0.05)
+    return detail
+
+
+def test_accept_all_reviews_and_resume(client):
+    task_id = _create(client)
+    detail = _wait(client, task_id)
+    assert detail["status"] == "awaiting_gate"
+
+    result = client.post(f"/api/v1/missions/{task_id}/reviews/accept-all",
+                         headers=HEADERS, json={"reviewer": "tester"})
+    assert result.status_code == 200, result.text
+    payload = result.json()
+    assert payload["accepted_parameters"] >= 6
+    assert payload["accepted_assumptions"] >= 1
+    assert payload["remaining_confirmations"] == 0
+    assert payload["revalidation"]["queued"] is True
+
+    detail = _wait(client, task_id, ("succeeded", "failed"))
+    assert detail["status"] == "succeeded", detail
+
+
+def test_edit_group_draft_payload(client):
+    task_id = _create(client)
+    _wait(client, task_id)
+    detail = client.get(f"/api/v1/missions/{task_id}/parameters/input.mass",
+                        headers=HEADERS).json()
+    payload = dict(detail["payload"])
+    payload["propellant_kg"] = 5.0  # 原值 3.0
+
+    accepted = client.post(f"/api/v1/missions/{task_id}/parameters/input.mass/review",
+                           headers=HEADERS, json={
+                               "action": "accept", "reviewer": "tester",
+                               "comment": "推进剂按 5kg 复核",
+                               "edited_payload": payload,
+                           })
+    assert accepted.status_code == 200, accepted.text
+
+    # 其余待确认项一键处理，让任务继续
+    result = client.post(f"/api/v1/missions/{task_id}/reviews/accept-all",
+                         headers=HEADERS, json={"reviewer": "tester"})
+    assert result.status_code == 200
+    detail = _wait(client, task_id, ("succeeded", "failed"))
+    assert detail["status"] in ("succeeded", "awaiting_gate")
+
+    param = client.get(f"/api/v1/missions/{task_id}/parameters/mass.propellant",
+                       headers=HEADERS).json()
+    assert param["value"] == pytest.approx(5.0)
+
+
+def test_reject_draft_fails_mission(client):
+    task_id = _create(client)
+    _wait(client, task_id)
+    rejected = client.post(f"/api/v1/missions/{task_id}/parameters/input.power/review",
+                           headers=HEADERS, json={
+                               "action": "reject", "reviewer": "tester",
+                               "comment": "功耗假设不合理",
+                           })
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json().get("mission_failed") is True
+
+    detail = client.get(f"/api/v1/missions/{task_id}", headers=HEADERS).json()
+    assert detail["status"] == "failed"
+    assert detail["last_error"]["code"] == "REVIEW_REJECTED"
+
+
+def test_chat_can_accept_all_latest_mission(client):
+    task_id = _create(client)
+    _wait(client, task_id)
+    session_id = client.post("/api/v1/chat/sessions", headers=HEADERS, json={}).json()["id"]
+    reply = client.post(f"/api/v1/chat/sessions/{session_id}/messages", headers=HEADERS,
+                        json={"content": "帮我自动完成审核"})
+    assert reply.status_code == 200, reply.text
+    assistant = reply.json()["assistant"]
+    assert "已一键确认" in assistant["content"] or "一键" in assistant["content"]
+
+    detail = _wait(client, task_id, ("succeeded", "failed"))
+    assert detail["status"] == "succeeded", detail
+
+
+def test_model_context_window_hints():
+    from app.providers.model_info import context_window_for_model
+
+    assert context_window_for_model("gpt-4o-mini") == 128_000
+    assert context_window_for_model("gpt-4.1") == 1_000_000
+    assert context_window_for_model("claude-sonnet-4-5") == 200_000
+    assert context_window_for_model("qwen-plus") == 131_072
+    assert context_window_for_model("custom-256k") == 262_144
+
+
+def test_context_settings_default_and_command_removed(client):
+    settings = client.get("/api/v1/settings/chat", headers=HEADERS).json()
+    assert settings["default_window"] == 262_144
+
+    session_id = client.post("/api/v1/chat/sessions", headers=HEADERS, json={}).json()["id"]
+    reply = client.post(f"/api/v1/chat/sessions/{session_id}/messages", headers=HEADERS,
+                        json={"content": "/context"})
+    assert reply.status_code == 200
+    assert "未知命令" in reply.json()["assistant"]["content"]

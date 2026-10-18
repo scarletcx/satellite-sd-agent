@@ -185,7 +185,7 @@ async def run_mission(task_id: str, start_from: str = "S1") -> None:
     trace(task_id, {"step": "S10", "type": "done", "status": "succeeded"})
 
 
-RESUME_FROM = {"S4": "S5", "S6": "S7"}
+RESUME_FROM = {"S4": "S5", "S6": "S6"}
 
 
 def continue_mission(task_id: str) -> None:

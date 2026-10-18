@@ -10,7 +10,6 @@ from app.tools.kb import store as kb_store
 
 HELP = """可用命令：
 /compact               手动压缩上下文
-/context               查看上下文用量
 /model [供应商] [模型]  查看或切换会话模型
 /effort [low|medium|high|off]  查看或设置推理强度
 /missions              查看任务列表
@@ -43,16 +42,6 @@ def execute(session_id: str, text: str) -> dict:
                             f"当前使用约 {snapshot['percent']}%（{snapshot['used_tokens']}"
                             f"/{snapshot['window']} tokens）。"),
                 "meta": {"command": "compact", "context": snapshot}}
-
-    if name == "context":
-        snapshot = context_store.context_snapshot(session_id)
-        return {"content": (f"上下文用量：约 {snapshot['percent']}%"
-                            f"（{snapshot['used_tokens']}/{snapshot['window']} tokens）；"
-                            f"未折叠消息 {snapshot['pending_messages']} 条，"
-                            f"摘要 {snapshot['summary_chars']} 字；"
-                            f"自动压缩 {'开启' if snapshot['auto_compact'] else '关闭'}"
-                            f"（阈值 {snapshot['threshold_pct']}%）。"),
-                "meta": {"command": "context", "context": snapshot}}
 
     if name == "model":
         if argument:

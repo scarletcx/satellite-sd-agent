@@ -196,6 +196,9 @@ class StubProvider:
         question = str(context.get("question") or "")
         task = re.search(r"t-\d{8}-\d{3}", question)
 
+        if any(word in question for word in ("自动完成审核", "全部确认", "一键确认", "一键审核", "全部审核")):
+            return {"action": "accept_all",
+                    "args": {"task_id": task.group(0) if task else None}}
         if ("新建" in question and "任务" in question) or "设计一颗" in question:
             return {"action": "create_mission", "goal": question, "args": {}}
         if "任务" in question and any(word in question for word in

@@ -15,7 +15,6 @@ const { TextArea } = Input;
 
 const SLASH_COMMANDS = [
   { command: "compact", hint: "压缩上下文" },
-  { command: "context", hint: "查看上下文用量" },
   { command: "model", hint: "切换会话模型" },
   { command: "effort", hint: "设置推理强度" },
   { command: "missions", hint: "查看任务" },
@@ -41,6 +40,7 @@ export default function Chat() {
   const [documents, setDocuments] = useState<ChatDocumentItem[]>([]);
   const [context, setContext] = useState<ChatContext | null>(null);
   const [providers, setProviders] = useState<ProviderSetting[]>([]);
+  const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -65,6 +65,23 @@ export default function Chat() {
       /* 设置读取失败不影响聊天 */
     }
   }, []);
+
+  const loadProviderModels = useCallback(async (providerId?: string | null) => {
+    if (!providerId || providerModels[providerId]) return;
+    const provider = providers.find((item) => item.id === providerId);
+    if (!provider) return;
+    try {
+      const result = await api.settingsProbe({
+        id: provider.id, protocol: provider.protocol,
+        base_url: provider.base_url, model: provider.model || undefined,
+      });
+      if (result.ok && Array.isArray(result.models) && result.models.length) {
+        setProviderModels((previous) => ({ ...previous, [providerId]: result.models }));
+      }
+    } catch {
+      /* 拉取失败时仅保留供应商默认模型 */
+    }
+  }, [providers, providerModels]);
 
   const loadSessions = useCallback(async () => {
     const data = await api.chatSessions();
@@ -121,6 +138,17 @@ export default function Chat() {
     () => sessions.find((item) => item.id === activeId) ?? null,
     [sessions, activeId],
   );
+  const activeProviderId = activeSession?.provider_id ?? null;
+  const activeProvider = providers.find((item) => item.id === activeProviderId) ?? null;
+  const modelOptions = useMemo(() => {
+    const base = providerModels[activeProviderId ?? ""] ?? [];
+    const defaults = [activeProvider?.model, activeSession?.model].filter(Boolean) as string[];
+    return Array.from(new Set([...defaults, ...base]));
+  }, [providerModels, activeProviderId, activeProvider, activeSession]);
+
+  useEffect(() => {
+    if (activeProviderId) void loadProviderModels(activeProviderId);
+  }, [activeProviderId, loadProviderModels]);
 
   const patchSession = async (payload: Parameters<typeof api.updateChatSession>[1]) => {
     if (!activeId) return;
@@ -300,21 +328,22 @@ export default function Chat() {
           </Space>
           <Space wrap size={6} style={{ marginTop: 4 }}>
             <Select
-              size="small" style={{ width: 180 }} placeholder="模型（供应商）"
+              size="small" style={{ width: 170 }} placeholder="供应商"
               value={activeSession?.provider_id ?? ""} allowClear
-              onChange={(value) => patchSession({ provider_id: value || null })}
+              onChange={(value) => patchSession({ provider_id: value || null, model: null })}
               options={providers.map((item) => ({
-                value: item.id, label: `${item.label || item.id} · ${item.model}`,
+                value: item.id, label: `${item.label || item.id}`,
               }))}
             />
-            <Input
-              size="small" style={{ width: 180 }} placeholder="模型名（可覆盖）"
-              defaultValue={activeSession?.model ?? ""}
-              key={`model-${activeSession?.id ?? ""}-${activeSession?.model ?? ""}`}
-              onBlur={(event) => {
-                const next = event.target.value.trim();
-                if (next !== (activeSession?.model ?? "")) void patchSession({ model: next || null });
-              }}
+            <Select
+              size="small" style={{ width: 220 }} placeholder={activeProviderId ? "模型" : "先选择供应商"}
+              disabled={!activeProviderId}
+              value={activeSession?.model ?? ""} allowClear
+              onChange={(value) => patchSession({ model: value || null })}
+              options={[
+                { value: "", label: activeProvider ? `默认（${activeProvider.model}）` : "默认" },
+                ...modelOptions.map((model) => ({ value: model, label: model })),
+              ]}
             />
             <Select
               size="small" style={{ width: 120 }} value={activeSession?.reasoning_effort ?? "off"}

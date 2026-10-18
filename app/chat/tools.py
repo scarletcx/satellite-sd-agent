@@ -9,7 +9,7 @@ from app.services import reviews as review_service
 from app.tools.kb import store as kb_store
 
 TOOL_ACTIONS = {
-    "create_mission", "list_missions", "mission_status", "mission_review",
+    "create_mission", "list_missions", "mission_status", "mission_review", "accept_all",
     "kb_store", "kb_list", "kb_delete",
     "memory_add", "memory_list", "memory_delete",
 }
@@ -77,6 +77,25 @@ def _execute(action: str, params: dict, session_id: str) -> dict:
             text += "；待处理门禁：" + "、".join(
                 gate.get("param_id") or gate.get("type") for gate in gates)
         return {"content": text, "meta": {"tool": action, "mission": snapshot}}
+
+    if action == "accept_all":
+        task_id = str(_param(params, "task_id") or "").strip()
+        if not task_id:
+            latest = mission_service.list_missions(limit=1)
+            if not latest:
+                return {"content": "当前没有任务可审核。", "meta": {"tool": action}}
+            task_id = latest[0]["task_id"]
+        result = review_service.accept_all(
+            task_id, reviewer="chat-agent",
+            comment=str(_param(params, "comment") or "聊天指令：一键确认全部待处理项"),
+        )
+        text = (f"已一键确认任务 {task_id}：参数 {result['accepted_parameters']} 个、"
+                f"假设 {result['accepted_assumptions']} 条；"
+                f"剩余待确认 {result['remaining_confirmations']} 项。")
+        if result["revalidation"]["queued"]:
+            text += "任务已恢复执行。"
+        return {"content": text, "meta": {"tool": action, "task_id": task_id,
+                                          "accept_all": result}}
 
     if action == "mission_review":
         task_id = str(_param(params, "task_id") or "").strip()

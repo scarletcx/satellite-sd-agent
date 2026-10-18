@@ -318,9 +318,32 @@ export const api = {createMission: (body: {
   reviewParameter: (
     id: string,
     paramId: string,
-    body: { action: "accept" | "reject"; reviewer: string; comment?: string; edited_value?: number },
+    body: {
+      action: "accept" | "reject";
+      reviewer: string;
+      comment?: string;
+      edited_value?: number;
+      edited_payload?: Record<string, unknown>;
+    },
   ) =>
     request<any>(`/missions/${id}/parameters/${encodeURIComponent(paramId)}/review`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  getParameter: (missionId: string, paramId: string) =>
+    request<ParameterSummary & { payload?: Record<string, unknown> | null }>(
+      `/missions/${missionId}/parameters/${encodeURIComponent(paramId)}`,
+    ),
+
+  acceptAllReviews: (missionId: string, body: { reviewer?: string; comment?: string } = {}) =>
+    request<{
+      mission_id: string;
+      accepted_parameters: number;
+      accepted_assumptions: number;
+      remaining_confirmations: number;
+      revalidation: { queued: boolean };
+    }>(`/missions/${missionId}/reviews/accept-all`, {
       method: "POST",
       body: JSON.stringify(body),
     }),

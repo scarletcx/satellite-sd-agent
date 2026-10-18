@@ -51,3 +51,11 @@
 4. **模型与推理强度**：会话级 `provider_id/model/reasoning_effort`，随调用透传（OpenAI 兼容
    `reasoning_effort`；Anthropic 忽略该字段）。
 5. **流式**：OpenAI 兼容供应商走原生 SSE token 流；其他供应商按块下发兜底；前端逐字渲染。
+
+## 6. 补充（2026-10-19）：评审闭环与窗口来源
+
+1. **一键确认**：`POST /missions/{id}/reviews/accept-all` 统一接受草案输入、假设与待评审参数（超限记为豁免）。
+2. **草案参数可编辑**：A8 支持 `edited_payload`（按分系统输入模型校验），不再强制"驳回重建"。
+3. **驳回语义**：驳回参数或假设 → 任务置 `failed`（`REVIEW_REJECTED`）并关闭门禁，避免卡死。
+4. **窗口来源**：压缩窗口以「对话与上下文」设置为准（默认 256k）；供应商 `/models` 探测结合
+   `model_info` 给出模型最大窗口参考；`proposed` 不再计入待评审（修复"已完成仍显示待评审"）。

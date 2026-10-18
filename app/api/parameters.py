@@ -22,6 +22,7 @@ from app.models import (
 )
 from app.orchestrator import engine
 from app.orchestrator.ids import next_assumption_id
+from app.services import reviews as review_service
 from app.steps.common import unconfirmed_total
 
 router = APIRouter(tags=["Parameters"])
@@ -120,6 +121,7 @@ def get_parameter(mission_id: str, param_id: str, _: None = Depends(require_toke
             "source_type": row.source_type, "source_ref": row.source_ref,
             "margin": row.margin, "confidence": row.confidence, "status": row.status,
             "version": row.version, "parent": row.parent,
+            "payload": row.payload,
             "derived_from": list(row.derived_from or []),
             "provenance": provenance,
             "validations": [{"rule_id": v.rule_id, "status": v.status,
@@ -136,6 +138,7 @@ class ReviewBody(BaseModel):
     reviewer: str
     comment: str | None = None
     edited_value: float | None = None
+    edited_payload: dict | None = None  # 分组设计输入（JSON）修改
 
 
 def _close_pending_gates(session, mission_id: str, reviewer: str, comment: str | None,
@@ -158,66 +161,28 @@ def _close_pending_gates(session, mission_id: str, reviewer: str, comment: str |
 @router.post("/missions/{mission_id}/parameters/{param_id}/review")
 async def review_parameter(mission_id: str, param_id: str, body: ReviewBody,
                            _: None = Depends(require_token)) -> dict:
-    resume_needed = False
     with new_session() as session:
         _ensure_mission(session, mission_id)
-        row = session.get(DesignParameter, (param_id, mission_id))
-        if row is None:
-            api_error(404, "PARAM_NOT_FOUND", "参数不存在", {"param_id": param_id})
-        if row.status not in CONFIRMABLE_STATUSES:
-            api_error(409, "STATE_CONFLICT", "当前参数状态不允许评审", {"status": row.status})
-        if body.action == "reject" and not body.comment:
-            api_error(400, "SCHEMA_INVALID", "reject 必须提供 comment", {"field": "comment"})
+    try:
+        return review_service.review_parameter(
+            mission_id, param_id, body.action, body.reviewer,
+            body.comment, body.edited_value, body.edited_payload,
+        )
+    except review_service.ReviewError as exc:
+        api_error(exc.status, exc.code, str(exc), exc.details)
 
-        is_group_draft = row.id.startswith("input.")
-        before = {"status": row.status, "value": row.value}
-        if body.action == "accept":
-            if is_group_draft:
-                if body.edited_value is not None:
-                    api_error(400, "SCHEMA_INVALID",
-                              "分组草案输入不支持直接改值（请调整任务书后重跑，或驳回并修订）",
-                              {"field": "edited_value"})
-                assumption_id = next_assumption_id(session, mission_id)
-                session.add(Assumption(
-                    id=assumption_id, mission_id=mission_id,
-                    content=f"设计输入「{row.name}」经 {body.reviewer} 确认采用 S4 草案值",
-                    basis=body.comment or "S4 模型建议；工程师确认无异议",
-                    related_params=[row.id], status="confirmed",
-                    registered_by=f"review:{body.reviewer}",
-                    confirmed_by=body.reviewer, confirmed_at=datetime.now(timezone.utc),
-                ))
-                row.status = "assumed"
-                row.source_type = "assumption"
-                row.source_ref = assumption_id
-            else:
-                if body.edited_value is not None:
-                    row.value = body.edited_value
-                    row.version += 1
-                row.status = "verified"
-        else:
-            row.status = "rejected"
 
-        session.add(AuditLog(
-            entity="design_parameter", entity_id=row.id, field="status",
-            before=before, after={"status": row.status, "value": row.value},
-            who=body.reviewer, why=body.comment or f"A8 {body.action}",
-        ))
-        session.flush()  # autoflush=False：先落库再统计剩余确认项
-
-        remaining = unconfirmed_total(session, mission_id)
-        gate_info = None
-        if remaining == 0:
-            gate_info = _close_pending_gates(session, mission_id, body.reviewer,
-                                             body.comment, body.action)
-            resume_needed = gate_info is not None
-        result = {"param_id": row.id, "status": row.status, "gate": gate_info,
-                  "remaining_confirmations": remaining,
-                  "revalidation": {"queued": resume_needed, "scope": f"param:{row.id}"}}
-        session.commit()
-
-    if resume_needed:
-        asyncio.create_task(engine.continue_mission(mission_id))
-    return result
+@router.post("/missions/{mission_id}/reviews/accept-all")
+async def accept_all_reviews(mission_id: str, body: AcceptAllBody | None = None,
+                             _: None = Depends(require_token)) -> dict:
+    """一键确认全部：草案输入（默认值）、未确认假设、待评审参数（含超限豁免）。"""
+    with new_session() as session:
+        _ensure_mission(session, mission_id)
+    return review_service.accept_all(
+        mission_id,
+        reviewer=(body.reviewer if body else "engineer"),
+        comment=(body.comment if body else None),
+    )
 
 
 # --------------------------------------------------------- A14 假设台账
@@ -245,6 +210,11 @@ def list_assumptions(mission_id: str, status: str | None = Query(default=None),
     return {"items": items, "total": len(items)}
 
 
+class AcceptAllBody(BaseModel):
+    reviewer: str = "engineer"
+    comment: str | None = None
+
+
 class AssumptionReviewBody(BaseModel):
     action: Literal["accept", "reject"]
     reviewer: str
@@ -254,38 +224,10 @@ class AssumptionReviewBody(BaseModel):
 @router.post("/missions/{mission_id}/assumptions/{assumption_id}/review")
 async def review_assumption(mission_id: str, assumption_id: str, body: AssumptionReviewBody,
                             _: None = Depends(require_token)) -> dict:
-    resume_needed = False
     with new_session() as session:
         _ensure_mission(session, mission_id)
-        row = session.get(Assumption, (assumption_id, mission_id))
-        if row is None:
-            api_error(404, "ASSUMPTION_NOT_FOUND", "假设不存在", {"assumption_id": assumption_id})
-        if row.status != "open":
-            api_error(409, "STATE_CONFLICT", "当前假设状态不允许评审", {"status": row.status})
-        if body.action == "reject" and not body.comment:
-            api_error(400, "SCHEMA_INVALID", "reject 必须提供 comment", {"field": "comment"})
-
-        before = {"status": row.status}
-        row.status = "confirmed" if body.action == "accept" else "rejected"
-        row.confirmed_by = body.reviewer
-        row.confirmed_at = datetime.now(timezone.utc)
-        session.add(AuditLog(
-            entity="assumption", entity_id=row.id, field="status",
-            before=before, after={"status": row.status},
-            who=body.reviewer, why=body.comment or f"A14 {body.action}",
-        ))
-        session.flush()
-
-        remaining = unconfirmed_total(session, mission_id)
-        gate_info = None
-        if remaining == 0:
-            gate_info = _close_pending_gates(session, mission_id, body.reviewer,
-                                             body.comment, body.action)
-            resume_needed = gate_info is not None
-        result = {"assumption_id": row.id, "status": row.status, "gate": gate_info,
-                  "remaining_confirmations": remaining}
-        session.commit()
-
-    if resume_needed:
-        asyncio.create_task(engine.continue_mission(mission_id))
-    return result
+    try:
+        return review_service.review_assumption(
+            mission_id, assumption_id, body.action, body.reviewer, body.comment)
+    except review_service.ReviewError as exc:
+        api_error(exc.status, exc.code, str(exc), exc.details)

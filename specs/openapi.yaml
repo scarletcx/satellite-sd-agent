@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: AI 卫星总体设计助手 API
-  version: 0.7.0
+  version: 0.7.1
   description: |
     由 `docs/07-api.md`（v0.2 细化版）生成，用途：**Apifox / Postman 直接导入进行手动测试**。
     - 本地 Base URL：`http://127.0.0.1:8000/api/v1`
@@ -646,6 +646,33 @@ paths:
               schema: { type: object }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /missions/{id}/reviews/accept-all:
+    parameters:
+      - $ref: '#/components/parameters/MissionId'
+    post:
+      operationId: acceptAllReviews
+      tags: [Parameters]
+      summary: 一键确认全部待处理项（A16）
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reviewer: { type: string }
+                comment: { type: string }
+      responses:
+        '200':
+          description: 确认结果
+          content:
+            application/json:
+              example: { mission_id: t-20261005-001, accepted_parameters: 8,
+                         accepted_assumptions: 3, remaining_confirmations: 0,
+                         revalidation: { queued: true } }
+              schema: { type: object }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /missions/{id}/assumptions:
     parameters:

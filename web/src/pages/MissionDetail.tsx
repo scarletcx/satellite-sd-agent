@@ -68,6 +68,11 @@ export default function MissionDetail() {
 
   const [reviewOpen, setReviewOpen] = useState(false);
   const [assumptions, setAssumptions] = useState<AssumptionItem[]>([]);
+  const [reviewPayloadText, setReviewPayloadText] = useState("");
+  const [acceptingAll, setAcceptingAll] = useState(false);
+  const [assumeRejectOpen, setAssumeRejectOpen] = useState(false);
+  const [assumeRejectId, setAssumeRejectId] = useState("");
+  const [assumeRejectComment, setAssumeRejectComment] = useState("");
   const [reviewParam, setReviewParam] = useState<ParameterSummary | null>(null);
   const [reviewAction, setReviewAction] = useState<"accept" | "reject">("accept");
   const [reviewComment, setReviewComment] = useState("");
@@ -157,7 +162,7 @@ export default function MissionDetail() {
     [params],
   );
   const needsReview = params.filter(
-    (item) => ["needs_review", "proposed", "draft"].includes(item.status),
+    (item) => ["needs_review", "draft", "rejected"].includes(item.status),
   ).length;
   const openAssumptions = assumptions.filter((item) => item.status === "open");
   const draftInputs = params.filter((item) => item.status === "draft");
@@ -189,14 +194,23 @@ export default function MissionDetail() {
   };
   const blocking = params.filter((item) => ["needs_review", "rejected"].includes(item.status));
 
-  const openReview = (param: ParameterSummary,
-                      action: "accept" | "reject" = "accept",
-                      initialValue: number | null = null) => {
+  const openReview = async (param: ParameterSummary,
+                            action: "accept" | "reject" = "accept",
+                            initialValue: number | null = null) => {
     setReviewParam(param);
     setReviewAction(action);
     setReviewComment("");
     setReviewValue(action === "accept" ? initialValue : null);
+    setReviewPayloadText("");
     setReviewOpen(true);
+    if (param.id.startsWith("input.")) {
+      try {
+        const detail = await api.getParameter(taskId, param.id);
+        setReviewPayloadText(JSON.stringify(detail.payload ?? {}, null, 2));
+      } catch {
+        setReviewPayloadText("{}");
+      }
+    }
   };
   const CONFIRMABLE = ["draft", "needs_review", "proposed", "rejected"];
 
@@ -209,19 +223,62 @@ export default function MissionDetail() {
     setReviewing(true);
     try {
       localStorage.setItem("satellite_reviewer", reviewer);
+      let editedPayload: Record<string, unknown> | undefined;
+      if (reviewParam.id.startsWith("input.") && reviewAction === "accept") {
+        try {
+          editedPayload = JSON.parse(reviewPayloadText || "{}");
+        } catch {
+          message.error("设计输入不是合法 JSON，请修正后再提交");
+          return;
+        }
+      }
       await api.reviewParameter(taskId, reviewParam.id, {
         action: reviewAction,
         reviewer,
         comment: reviewComment || undefined,
-        edited_value: reviewValue ?? undefined,
+        edited_value: reviewParam.id.startsWith("input.") ? undefined : (reviewValue ?? undefined),
+        ...(editedPayload ? { edited_payload: editedPayload } : {}),
       });
-      message.success("评审已提交，已触发重新校验");
+      message.success("评审已提交");
       setReviewOpen(false);
       load();
     } catch (error) {
       if (error instanceof ApiError) message.error(`[${error.code}] ${error.message}`);
     } finally {
       setReviewing(false);
+    }
+  };
+
+  const acceptAllReviews = async () => {
+    setAcceptingAll(true);
+    try {
+      const result = await api.acceptAllReviews(taskId, {
+        reviewer, comment: "界面一键确认全部待处理项",
+      });
+      message.success(`已确认参数 ${result.accepted_parameters} 个、假设 ${result.accepted_assumptions} 条；`
+        + `剩余 ${result.remaining_confirmations} 项`);
+      await load();
+    } catch (error) {
+      if (error instanceof ApiError) message.error(`[${error.code}] ${error.message}`);
+    } finally {
+      setAcceptingAll(false);
+    }
+  };
+
+  const submitAssumptionReject = async () => {
+    if (!assumeRejectComment.trim()) {
+      message.warning("驳回必须填写原因");
+      return;
+    }
+    try {
+      await api.reviewAssumption(taskId, assumeRejectId, {
+        action: "reject", reviewer, comment: assumeRejectComment,
+      });
+      message.success("已驳回该假设");
+      setAssumeRejectOpen(false);
+      await load();
+    } catch (error) {
+      if (error instanceof ApiError) message.error(`[${error.code}] ${error.message}`);
     }
   };
 
@@ -433,7 +490,9 @@ export default function MissionDetail() {
           )}
           {openAssumptions.length > 0 && (
             <>
-              <Text strong>未确认假设（{openAssumptions.length} 条，open）</Text>
+                <Space size="small">
+                  <Text strong>未确认假设（{openAssumptions.length} 条，open）</Text>
+                </Space>
               <List
                 size="small" dataSource={openAssumptions}
                 renderItem={(item) => (
@@ -441,6 +500,12 @@ export default function MissionDetail() {
                     actions={[
                       <Button key="accept" size="small" type="primary"
                         onClick={() => confirmAssumption(item.id)}>确认</Button>,
+                      <Button key="reject" size="small" danger
+                        onClick={() => {
+                          setAssumeRejectId(item.id);
+                          setAssumeRejectComment("");
+                          setAssumeRejectOpen(true);
+                        }}>驳回</Button>,
                     ]}
                   >
                     <List.Item.Meta
@@ -484,6 +549,17 @@ export default function MissionDetail() {
         }}>
           重新校验
         </Button>
+        <Popconfirm
+          title="一键确认全部待处理项？"
+          description="包括草案输入、未确认假设与待评审参数（超限参数会记为人工豁免）"
+          okText="确认全部" cancelText="取消"
+          onConfirm={acceptAllReviews}
+        >
+          <Button type="primary" loading={acceptingAll}
+            disabled={!needsReview && openAssumptions.length === 0}>
+            一键确认全部
+          </Button>
+        </Popconfirm>
       </Space>
       {blocking.length > 0 && (
         <Alert
@@ -621,20 +697,48 @@ export default function MissionDetail() {
             onChange={(event) => setReviewAction(event.target.value)}
             options={[{ value: "accept", label: "接受（accept）" }, { value: "reject", label: "驳回（reject）" }]}
           />
+          {reviewAction === "reject" && (
+            <Alert
+              type="warning" showIcon
+              message="驳回会终止当前任务（状态变为失败）"
+              description="之后可修改参数或任务书再重新校验/重建；如需继续，请选择接受并在下方填写意见。"
+            />
+          )}
           {reviewAction === "accept" && !reviewParam?.id.startsWith("input.") && (
             <InputNumber
               style={{ width: "100%" }} placeholder="修正值（可选，填写后版本 +1）"
               value={reviewValue} onChange={(value) => setReviewValue(value)}
             />
           )}
-          {reviewParam?.id.startsWith("input.") && (
-            <Text type="secondary">分组设计输入不支持直接改值：可接受，或驳回并重新创建任务。</Text>
+          {reviewParam?.id.startsWith("input.") && reviewAction === "accept" && (
+            <>
+              <Text type="secondary">
+                可直接修改设计输入（JSON，保存后会按当前分组重新校验）
+              </Text>
+              <Input.TextArea
+                rows={10} value={reviewPayloadText}
+                onChange={(event) => setReviewPayloadText(event.target.value)}
+                style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12 }}
+              />
+            </>
           )}
           <Input.TextArea
             rows={3} value={reviewComment}
             onChange={(event) => setReviewComment(event.target.value)}
             placeholder={reviewAction === "reject" ? "评审意见（驳回必填）" : "评审意见（可选）"}
           />
+        </Space>
+      </Modal>
+
+      <Modal
+        open={assumeRejectOpen} title="驳回假设" okText="驳回" okButtonProps={{ danger: true }}
+        cancelText="取消" onCancel={() => setAssumeRejectOpen(false)} onOk={submitAssumptionReject}
+      >
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Alert type="warning" showIcon message="驳回假设会终止当前任务（状态变为失败）" />
+          <Input.TextArea rows={3} value={assumeRejectComment}
+            onChange={(event) => setAssumeRejectComment(event.target.value)}
+            placeholder="驳回原因（必填）" />
         </Space>
       </Modal>
     </Space>

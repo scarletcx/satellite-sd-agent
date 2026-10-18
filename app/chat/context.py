@@ -14,13 +14,12 @@ import re
 from app.db import new_session
 from app.models import AppMeta, ChatMessage, ChatSession
 from app.providers import chat_json
-from app.providers.specs import find_spec
 
 SETTINGS_KEY = "chat_context"
 DEFAULTS = {
     "auto_compact": True,
     "threshold_pct": 80,
-    "default_window": 128000,
+    "default_window": 262144,   # 256k：用户可在设置页按模型最大窗口调整
     "keep_recent": 6,
     "summary_max_chars": 1500,
 }
@@ -63,9 +62,7 @@ def estimate_tokens(text: str) -> int:
 
 
 def _session_window(provider_id: str | None) -> int:
-    spec = find_spec(provider_id) if provider_id else None
-    if spec and spec.context_window:
-        return int(spec.context_window)
+    """会话窗口以「对话与上下文」设置为准；供应商模型窗口仅作设置页参考。"""
     return int(get_settings()["default_window"])
 
 

@@ -62,7 +62,8 @@ def list_missions(status: str | None = None, limit: int = 50) -> list[dict]:
         query = session.query(Mission)
         if status:
             query = query.filter(Mission.status == status)
-        rows = query.order_by(Mission.created_at.desc()).limit(limit).all()
+        rows = (query.order_by(Mission.created_at.desc(), Mission.id.desc())
+                .limit(limit).all())
         return [
             {
                 "task_id": row.id,

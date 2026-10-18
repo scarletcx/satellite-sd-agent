@@ -13,8 +13,9 @@
 7. 把本会话附件存入全局知识库：`{"action":"kb_store","args":{"filename":"可选，缺省取最新附件"}}`
 8. 列出全局知识库文档：`{"action":"kb_list"}`
 9. 删除知识库文档：`{"action":"kb_delete","args":{"doc_id":"可选","filename":"可选"}}`
-10. 记录长期记忆：`{"action":"memory_add","args":{"content":"需要跨会话记住的信息","category":"preference"}}`
-11. 查看/删除长期记忆：`{"action":"memory_list"}` / `{"action":"memory_delete","args":{"memory_id":1}}`
+10. 一键确认某个任务的全部待处理项（草案输入/假设/待评审参数）：`{"action":"accept_all","args":{"task_id":"t-…","comment":"可选"}}`
+11. 记录长期记忆：`{"action":"memory_add","args":{"content":"需要跨会话记住的信息","category":"preference"}}`
+12. 查看/删除长期记忆：`{"action":"memory_list"}` / `{"action":"memory_delete","args":{"memory_id":1}}`
 
 长期记忆（跨会话）：
 <<MEMORIES>>

@@ -154,6 +154,8 @@ def probe_provider(body: ProbeBody, _: None = Depends(require_token)) -> dict:
             if body.protocol == "anthropic":
                 if not body.model:
                     return {"ok": False, "error": "anthropic 协议探测需要 model"}
+                from app.providers.model_info import context_window_for_model
+
                 response = client.post(
                     f"{base_url}/v1/messages",
                     headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
@@ -162,7 +164,10 @@ def probe_provider(body: ProbeBody, _: None = Depends(require_token)) -> dict:
                 )
                 if response.status_code >= 400:
                     return {"ok": False, "status": response.status_code, "error": response.text[:300]}
-                return {"ok": True, "latency_ms": int((time.perf_counter() - started) * 1000)}
+                return {"ok": True, "latency_ms": int((time.perf_counter() - started) * 1000),
+                        "models": [body.model],
+                        "model_contexts": {body.model: context_window_for_model(body.model)},
+                        "max_context_window": context_window_for_model(body.model)}
 
             response = client.get(f"{base_url}/models",
                                   headers={"Authorization": f"Bearer {api_key}"})
@@ -171,8 +176,13 @@ def probe_provider(body: ProbeBody, _: None = Depends(require_token)) -> dict:
             data = response.json()
             models = sorted({str(item.get("id")) for item in (data.get("data") or [])
                              if isinstance(item, dict) and item.get("id")})
+            from app.providers.model_info import contexts_for_models
+
+            contexts = contexts_for_models(models)
             return {"ok": True, "latency_ms": int((time.perf_counter() - started) * 1000),
-                    "models": models}
+                    "models": models, "model_contexts": contexts,
+                    "max_context_window": max([v for v in contexts.values() if v] or [None])
+                    if any(contexts.values()) else None}
     except httpx.HTTPError as exc:
         return {"ok": False, "error": str(exc)[:300]}
 
