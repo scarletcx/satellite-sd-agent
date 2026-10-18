@@ -14,7 +14,7 @@ cp .env.example .env        # 可选：修改 APP_TOKEN
 make run                    # http://127.0.0.1:8000 ，接口文档 /docs
 
 # 3) 测试
-make test                   # 单元 + 流水线 + API 冒烟（61 个用例全部通过）
+make test                   # 单元 + 流水线 + API 冒烟（65 个用例全部通过）
 
 # 4) 常用脚本
 make seed                   # 导入种子语料（幂等）

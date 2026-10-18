@@ -55,11 +55,13 @@
 8. ✅ 运维脚本：`make seed` / `make demo-adv`（拦截演示）/ `make reference` / `make snapshot` / `make cost-report`；成本上限守卫
 9. ✅ 供应商注册表 + 前端「设置」页（任意第三方，保存即生效，ADR-0006）；**真实 Key 联调完成**（第三方网关：4 次调用 / ¥0.43 / 91-91 可追溯）
 10. ✅ 任务级模型选择（A1 `provider_id`）、执行进度与过程提示（含门禁暂停态）、Word 在线预览（A13 docx→HTML）
-11. 下一步：bge-m3 + pgvector；语料采集按 [collection-checklist.md](./collection-checklist.md) 执行
+11. ✅ C5 轨道交叉验证（skyfield/SGP4，ADR-0004 选型落地）；S7 接入 LLM、SSE 断线续传、任务列表页、S8 白名单护栏、引用自检
+12. ✅ 开放语料抓取（`make corpus-fetch`，3 份 NASA 公有领域文档 / 3037 chunks 已入库）；embedding 后端可切换（`EMBEDDING_BACKEND=bge-m3`，跨后端维度守卫）
+13. 下一步：pgvector 落地（需 Postgres 环境，步骤见 [04 §9.1](./04-knowledge-base.md)）；语料继续按 [collection-checklist.md](./collection-checklist.md) 采集
 
 ## 待确认事项
 
 - [ ] 黄金用例期望数值区间（独立手算后填入 [11](./11-test-plan.md)）
-- [ ] 交叉验证库三选一（brahe / tudatpy / skyfield，[ADR-0004](./adr/0004-orbit-computation.md)）
+- [x] 交叉验证库三选一（已定 skyfield，[ADR-0004](./adr/0004-orbit-computation.md)）
 - [ ] 切分与检索参数定稿（[04](./04-knowledge-base.md) §5，实验后开 ADR）
 - [ ] 模型名与配额核对（[12](./12-deployment.md) §3）
