@@ -19,7 +19,7 @@ SETTINGS_KEY = "chat_context"
 DEFAULTS = {
     "auto_compact": True,
     "threshold_pct": 80,
-    "default_window": 262144,   # 256k：用户可在设置页按模型最大窗口调整
+    "default_window": 256000,   # 256k（十进制 k）：用户可在设置页按模型最大窗口调整
     "keep_recent": 6,
     "summary_max_chars": 1500,
 }

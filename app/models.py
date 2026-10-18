@@ -47,6 +47,7 @@ class DesignParameter(Base):
     margin: Mapped[float | None] = mapped_column(Float, nullable=True)
     confidence: Mapped[str] = mapped_column(String(8), default="medium")
     status: Mapped[str] = mapped_column(String(16), default="proposed")
+    waived: Mapped[bool] = mapped_column(Boolean, default=False)  # 人工评审豁免（重跑校验时降级为 warn）
     parent: Mapped[str | None] = mapped_column(String(64), nullable=True)
     derived_from: Mapped[list] = mapped_column(JSON, default=list)
     upstream_hash: Mapped[str | None] = mapped_column(String(80), nullable=True)
@@ -185,6 +186,7 @@ class ChatSession(Base):
     provider_id: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 会话级模型选择
     model: Mapped[str | None] = mapped_column(String(120), nullable=True)       # 会话级模型覆盖
     reasoning_effort: Mapped[str | None] = mapped_column(String(16), nullable=True)  # low/medium/high
+    pending_mission: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # 对话中的任务草稿（待确认）
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)

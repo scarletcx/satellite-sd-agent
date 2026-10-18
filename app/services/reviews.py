@@ -116,6 +116,7 @@ def _apply_parameter(session, mission_id: str, param_id: str, action: str, revie
                 row.value = edited_value
                 row.version += 1
             row.status = "verified"
+            row.waived = True  # 人工接受：后续重跑校验时若仍超限，降级为 warn
     else:
         row.status = "rejected"
 
@@ -202,43 +203,89 @@ def review_assumption(mission_id: str, assumption_id: str, action: str,
     return result
 
 
+def _pending_needs_review(mission_id: str) -> list[str]:
+    with new_session() as session:
+        return [row[0] for row in session.query(DesignParameter.id).filter(
+            DesignParameter.mission_id == mission_id,
+            DesignParameter.status.in_(("draft", "needs_review", "rejected")),
+        ).all()]
+
+
+def _mission_status(mission_id: str) -> str | None:
+    with new_session() as session:
+        mission = session.get(Mission, mission_id)
+        return mission.status if mission else None
+
+
 def accept_all(mission_id: str, reviewer: str = "engineer",
                comment: str | None = "一键确认全部待处理项") -> dict:
-    """一键确认：草案输入（默认值）、未确认假设、待评审参数（含超限豁免）。"""
+    """一键确认：草案输入（默认值）、未确认假设、待评审参数（含超限豁免）。
+
+    校验是确定性的、很快：如果放行后立刻产生新的校验门禁（例如链路余量不足），
+    会在有限轮次内继续按“人工接受（豁免）”处理，避免用户反复点击。
+    """
     accepted_params = accepted_assumptions = 0
-    with new_session() as session:
-        params = (session.query(DesignParameter)
-                  .filter(DesignParameter.mission_id == mission_id,
-                          DesignParameter.status.in_(("draft", "needs_review", "rejected")))
-                  .order_by(DesignParameter.id).all())
-        for row in params:
-            _apply_parameter(session, mission_id, row.id, "accept", reviewer,
-                             comment, None, None)
-            accepted_params += 1
+    rounds = 0
+    gate_info = None
+    resume = False
 
-        assumptions = (session.query(Assumption)
-                       .filter(Assumption.mission_id == mission_id,
-                               Assumption.status == "open").all())
-        for row in assumptions:
-            _apply_assumption(session, mission_id, row.id, "accept", reviewer, comment)
-            accepted_assumptions += 1
+    for _ in range(3):
+        rounds += 1
+        with new_session() as session:
+            params = (session.query(DesignParameter)
+                      .filter(DesignParameter.mission_id == mission_id,
+                              DesignParameter.status.in_(("draft", "needs_review", "rejected")))
+                      .order_by(DesignParameter.id).all())
+            for row in params:
+                _apply_parameter(session, mission_id, row.id, "accept", reviewer,
+                                 comment, None, None)
+                accepted_params += 1
 
-        session.flush()
-        remaining = unconfirmed_total(session, mission_id)
-        gate_info = None
-        resume = False
-        if remaining == 0:
-            gate_info = _close_pending_gates(session, mission_id, reviewer, comment, "accept")
-            resume = gate_info is not None
-        session.commit()
-        result = {
-            "mission_id": mission_id,
-            "accepted_parameters": accepted_params,
-            "accepted_assumptions": accepted_assumptions,
-            "remaining_confirmations": remaining,
-            "gate": gate_info,
-            "revalidation": {"queued": resume},
-        }
-    if resume:
+            assumptions = (session.query(Assumption)
+                           .filter(Assumption.mission_id == mission_id,
+                                   Assumption.status == "open").all())
+            for row in assumptions:
+                _apply_assumption(session, mission_id, row.id, "accept", reviewer, comment)
+                accepted_assumptions += 1
+
+            session.flush()
+            remaining = unconfirmed_total(session, mission_id)
+            if remaining == 0:
+                gate_info = _close_pending_gates(session, mission_id, reviewer, comment, "accept")
+                resume = gate_info is not None
+            session.commit()
+
+        if not resume:
+            break
+
+        import time
+
         schedule(lambda: engine.continue_mission(mission_id))
-    return result
+        # 等待确定性校验跑完：等到「有新的待评审参数的门禁」或终态
+        deadline = time.time() + 6.0
+        status = _mission_status(mission_id)
+        pending: list[str] = []
+        while time.time() < deadline:
+            status = _mission_status(mission_id)
+            pending = _pending_needs_review(mission_id)
+            if status == "awaiting_gate" and pending:
+                break
+            if status in ("succeeded", "failed"):
+                pending = []
+                break
+            time.sleep(0.2)
+        if status != "awaiting_gate" or not pending:
+            break
+        resume = False
+
+    with new_session() as session:
+        remaining = unconfirmed_total(session, mission_id)
+    return {
+        "mission_id": mission_id,
+        "accepted_parameters": accepted_params,
+        "accepted_assumptions": accepted_assumptions,
+        "remaining_confirmations": remaining,
+        "rounds": rounds,
+        "gate": gate_info,
+        "revalidation": {"queued": resume},
+    }

@@ -31,6 +31,8 @@ class ChatState(TypedDict, total=False):
 
 
 def _plan_node(state: ChatState) -> dict:
+    from app.chat.tools import pending_draft
+
     payload = chat_json("CHAT_PLAN", {
         "task_id": state["session_id"],
         "provider_id": (state.get("options") or {}).get("provider_id"),
@@ -38,6 +40,7 @@ def _plan_node(state: ChatState) -> dict:
         "history": state.get("history", []),
         "summary": state.get("summary", ""),
         "memories": state.get("memories", "（暂无）"),
+        "pending_mission": pending_draft(state["session_id"]),
         "retry_hint": "",
     }, options=state.get("options"))
     return {"plan": payload}

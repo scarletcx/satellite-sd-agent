@@ -263,6 +263,15 @@ def run_validation(params: list[dict], constraints: dict,
     findings += v5_history(values)
     findings += v6_sensitivity(records or [], constraints)
     findings += v7_assumptions(assumptions or [])
+
+    # 人工豁免：已由工程师接受过的参数，重跑校验时命中阻断 → 降级为 warn（保留证据）
+    waived = {p["id"] for p in params if p.get("waived")}
+    if waived:
+        for finding in findings:
+            if finding["status"] == "block" and finding.get("param_id") in waived:
+                finding["status"] = "warn"
+                finding["message"] = finding["message"] + "（已由人工评审豁免）"
+                finding["evidence"] = {**finding.get("evidence", {}), "waived": True}
     return findings
 
 

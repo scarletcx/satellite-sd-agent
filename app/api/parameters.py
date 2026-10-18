@@ -178,10 +178,14 @@ async def accept_all_reviews(mission_id: str, body: AcceptAllBody | None = None,
     """一键确认全部：草案输入（默认值）、未确认假设、待评审参数（含超限豁免）。"""
     with new_session() as session:
         _ensure_mission(session, mission_id)
-    return review_service.accept_all(
+    from starlette.concurrency import run_in_threadpool
+
+    # 一键确认内部会等待确定性校验（含多轮豁免），放到线程池避免阻塞事件循环
+    return await run_in_threadpool(
+        review_service.accept_all,
         mission_id,
-        reviewer=(body.reviewer if body else "engineer"),
-        comment=(body.comment if body else None),
+        (body.reviewer if body else "engineer"),
+        (body.comment if body else None),
     )
 
 

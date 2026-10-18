@@ -9,6 +9,7 @@ import re
 
 # 顺序敏感：先匹配更具体的模式
 _HINTS: tuple[tuple[str, int], ...] = (
+    (r"deepseek.*flash", 1_000_000),
     (r"gpt-4\.1|gpt-5", 1_000_000),
     (r"gpt-4o|gpt-4-turbo", 128_000),
     (r"o[1-4](?:-|$)", 200_000),

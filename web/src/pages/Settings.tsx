@@ -196,10 +196,12 @@ export default function Settings() {
                 onChange={(value) => setChatSettings({ ...chatSettings, keep_recent: Number(value ?? 6) })} />
             </Space>
             <Space size="small">
-              <span>上下文窗口(tokens)</span>
-              <InputNumber min={8000} max={2000000} step={1000} style={{ width: 130 }}
-                value={chatSettings.default_window}
-                onChange={(value) => setChatSettings({ ...chatSettings, default_window: Number(value ?? 262144) })} />
+              <span>上下文窗口(k tokens)</span>
+              <InputNumber min={8} max={2000} step={1} style={{ width: 100 }}
+                value={Math.round(chatSettings.default_window / 1000)}
+                onChange={(value) => setChatSettings({
+                  ...chatSettings, default_window: Number(value ?? 256) * 1000,
+                })} />
               <Text type="secondary" style={{ fontSize: 12 }}>
                 默认 256k；可参考下方供应商模型的最大窗口后在此调整
               </Text>

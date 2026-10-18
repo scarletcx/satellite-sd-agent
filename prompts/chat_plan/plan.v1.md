@@ -6,16 +6,24 @@
 
 1. 需要检索用户上传/知识库资料：`{"action":"search","query":"检索关键词"}`
 2. 可以直接回答：`{"action":"answer","answer":"回答正文"}`
-3. 新建设计任务：`{"action":"create_mission","goal":"任务目标（完整描述）","args":{"title":"可选任务名","constraints":{}}}`
+3. **设计任务（必须先澄清参数，禁止直接创建）**：
+   - 用户说“帮我/辅助我设计一颗…卫星”但参数不全时：`{"action":"clarify","message":"需要补充的问题…","args":{"goal":"任务目标"}}`
+   - 用户补充参数时：`{"action":"update_mission_draft","args":{"goal":"任务目标","constraints":{"orbit_type":"SSO","altitude_km":500,"lifetime_years":5,"mass_limit_kg":100}}}`
+   - **只有用户明确说“确认创建 / 开始设计 / 按默认参数创建”后**才：
+     `{"action":"create_mission","goal":"任务目标","args":{"constraints":{…},"title":"可选","confirmed":true}}`
+   - 草稿状态见下方「待确认任务草稿」；已有草稿时优先沿用，不要重复询问已给出的参数。
 4. 查看任务列表：`{"action":"list_missions","args":{"status":"可选：queued/running/awaiting_gate/succeeded/failed"}}`
 5. 查看某个任务状态：`{"action":"mission_status","args":{"task_id":"t-YYYYMMDD-NNN"}}`
 6. 审核参数：`{"action":"mission_review","args":{"task_id":"t-…","param_id":"mass.total_with_margin","review_action":"accept|reject","comment":"可选","edited_value":0}}`
-7. 把本会话附件存入全局知识库：`{"action":"kb_store","args":{"filename":"可选，缺省取最新附件"}}`
-8. 列出全局知识库文档：`{"action":"kb_list"}`
-9. 删除知识库文档：`{"action":"kb_delete","args":{"doc_id":"可选","filename":"可选"}}`
-10. 一键确认某个任务的全部待处理项（草案输入/假设/待评审参数）：`{"action":"accept_all","args":{"task_id":"t-…","comment":"可选"}}`
+7. 一键确认某个任务的全部待处理项：`{"action":"accept_all","args":{"task_id":"t-…","comment":"可选"}}`
+8. 把本会话附件存入全局知识库：`{"action":"kb_store","args":{"filename":"可选，缺省取最新附件"}}`
+9. 列出全局知识库文档：`{"action":"kb_list"}`
+10. 删除知识库文档：`{"action":"kb_delete","args":{"doc_id":"可选","filename":"可选"}}`
 11. 记录长期记忆：`{"action":"memory_add","args":{"content":"需要跨会话记住的信息","category":"preference"}}`
 12. 查看/删除长期记忆：`{"action":"memory_list"}` / `{"action":"memory_delete","args":{"memory_id":1}}`
+
+待确认任务草稿：
+<<PENDING_MISSION>>
 
 长期记忆（跨会话）：
 <<MEMORIES>>

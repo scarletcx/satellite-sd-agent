@@ -9,10 +9,53 @@ from app.services import reviews as review_service
 from app.tools.kb import store as kb_store
 
 TOOL_ACTIONS = {
-    "create_mission", "list_missions", "mission_status", "mission_review", "accept_all",
+    "create_mission", "clarify", "update_mission_draft",
+    "list_missions", "mission_status", "mission_review", "accept_all",
     "kb_store", "kb_list", "kb_delete",
     "memory_add", "memory_list", "memory_delete",
 }
+
+REQUIRED_CONSTRAINTS = (("orbit_type", "轨道类型（SSO / LEO / GEO）"),
+                        ("altitude_km", "轨道高度（km）"),
+                        ("lifetime_years", "设计寿命（年）"))
+
+
+def pending_draft(session_id: str) -> dict:
+    from app.models import ChatSession
+
+    with new_session() as session:
+        chat = session.get(ChatSession, session_id)
+        return dict(chat.pending_mission or {}) if chat else {}
+
+
+def _save_pending(session_id: str, draft: dict) -> None:
+    from app.models import ChatSession
+
+    with new_session() as session:
+        chat = session.get(ChatSession, session_id)
+        if chat is not None:
+            chat.pending_mission = draft
+            session.commit()
+
+
+def _clear_pending(session_id: str) -> None:
+    _save_pending(session_id, None)
+
+
+def _draft_summary(draft: dict) -> str:
+    constraints = draft.get("constraints") or {}
+    labels = {"orbit_type": "轨道", "altitude_km": "高度 km", "lifetime_years": "寿命 年",
+              "mass_limit_kg": "质量上限 kg", "payload": "载荷", "data_requirements": "任务需求",
+              "ttc_conditions": "测控条件", "notes": "备注"}
+    known = "、".join(f"{labels.get(key, key)}={value}" for key, value in constraints.items()
+                     if value not in (None, ""))
+    missing = [label for key, label in REQUIRED_CONSTRAINTS if not constraints.get(key)]
+    lines = [f"任务草案：{draft.get('goal') or '（未命名）'}" + (f"；已知：{known}" if known else "")]
+    if missing:
+        lines.append("还需补充：" + "、".join(missing) + "。")
+    lines.append("可以直接回复参数（如「轨道 SSO，高度 500km，寿命 5 年，质量上限 100kg」），"
+                 "或者说「按默认参数创建」；明确回复「确认创建」后我再启动设计任务。")
+    return "\n".join(lines)
 
 
 class ToolError(ValueError):
@@ -40,20 +83,55 @@ def execute(action: str, params: dict, session_id: str) -> dict:
 
 
 def _execute(action: str, params: dict, session_id: str) -> dict:
+    if action == "clarify":
+        message = str(_param(params, "message") or "").strip()
+        draft = pending_draft(session_id)
+        if not draft:
+            draft = {"goal": str(_param(params, "goal") or "").strip(), "constraints": {}}
+            _save_pending(session_id, draft)
+        content = message or _draft_summary(draft)
+        return {"content": content, "meta": {"tool": action, "pending_mission": draft}}
+
+    if action == "update_mission_draft":
+        current = pending_draft(session_id)
+        goal = str(_param(params, "goal") or current.get("goal") or "").strip()
+        incoming = _param(params, "constraints") or {}
+        constraints = dict(current.get("constraints") or {})
+        if isinstance(incoming, dict):
+            for key, value in incoming.items():
+                if value not in (None, ""):
+                    constraints[key] = value
+        title = _param(params, "title") or current.get("title")
+        draft = {"goal": goal, "constraints": constraints, "title": title}
+        _save_pending(session_id, draft)
+        return {"content": _draft_summary(draft),
+                "meta": {"tool": action, "pending_mission": draft}}
+
     if action == "create_mission":
-        goal = str(_param(params, "goal") or "").strip()
+        draft = pending_draft(session_id)
+        confirmed = bool(_param(params, "confirmed"))
+        if draft and not confirmed:
+            return {"content": _draft_summary(draft) + "\n（尚未创建：请明确回复「确认创建」）",
+                    "meta": {"tool": "clarify", "pending_mission": draft}}
+        goal = str(_param(params, "goal") or draft.get("goal") or "").strip()
         if not goal:
             raise ToolError("缺少任务目标")
-        constraints = _param(params, "constraints") or {}
-        title = _param(params, "title")
+        incoming = _param(params, "constraints") or {}
+        constraints = dict(draft.get("constraints") or {})
+        if isinstance(incoming, dict):
+            for key, value in incoming.items():
+                if value not in (None, ""):
+                    constraints[key] = value
+        title = _param(params, "title") or draft.get("title")
         result = mission_service.create_mission(
-            goal=goal, constraints=constraints if isinstance(constraints, dict) else {},
+            goal=goal, constraints=constraints,
             title=str(title) if title else None,
         )
+        _clear_pending(session_id)
         return {
             "content": (f"已创建任务 {result['task_id']}「{result['title']}」，"
                         f"正在后台执行。可在「设计任务」页查看：/missions/{result['task_id']}"),
-            "meta": {"tool": action, "task_id": result["task_id"]},
+            "meta": {"tool": "create_mission", "task_id": result["task_id"]},
         }
 
     if action == "list_missions":

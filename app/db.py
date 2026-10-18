@@ -21,6 +21,8 @@ _COLUMN_MIGRATIONS = (
     ("missions", "provider_id", "VARCHAR(32)"),
     ("missions", "title", "VARCHAR(120)"),
     ("design_parameters", "payload", "JSON"),
+    ("design_parameters", "waived", "BOOLEAN DEFAULT 0"),
+    ("chat_sessions", "pending_mission", "JSON"),
     ("chat_sessions", "compacted_until", "INTEGER DEFAULT 0"),
     ("chat_sessions", "pinned", "BOOLEAN DEFAULT 0"),
     ("chat_sessions", "provider_id", "VARCHAR(32)"),

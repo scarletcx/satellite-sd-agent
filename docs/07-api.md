@@ -475,12 +475,14 @@ data: {"gate_id":"g-003","type":"assumption_confirm","param_id":"mass.margin_pct
 - **请求**：`POST {{baseUrl}}/missions/t-20261005-001/reviews/accept-all`
 - **请求体**：`{ "reviewer": "engineer@example.com", "comment": "可选" }`
 - **业务逻辑**：依次接受 `draft` / `needs_review` / `rejected` 参数（草案输入按当前 JSON 值确认）与
-  所有 `open` 假设；待确认项清零后关闭门禁并恢复任务（校验门禁放行后重跑 S6）
+  所有 `open` 假设；待确认项清零后关闭门禁并恢复任务（校验门禁放行后重跑 S6）。
+  **支持多轮**：若放行后的确定性校验产生新的待评审参数（如链路余量不足），在一次请求内继续按人工豁免处理
+  （最多 3 轮）；如任务进入需要模型的长步骤（S7/S8），请求在等待上限后返回，任务继续在后台执行。
 - **响应**：
 
 ```json
 { "mission_id": "t-20261005-001", "accepted_parameters": 8,
-  "accepted_assumptions": 3, "remaining_confirmations": 0,
+  "accepted_assumptions": 3, "remaining_confirmations": 0, "rounds": 2,
   "gate": { "gate_id": "g-001", "action": "accept", "reviewer": "engineer@example.com" },
   "revalidation": { "queued": true } }
 ```

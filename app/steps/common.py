@@ -93,6 +93,8 @@ def upsert_parameter(
         )
         session.add(row)
     else:
+        if row.value != value:
+            row.waived = False  # 重新计算后，旧的人工豁免失效
         row.value = value
         row.source_type = source_type
         row.source_ref = source_ref
@@ -114,6 +116,7 @@ def load_params(session: Session, mission_id: str) -> list[dict]:
             "source_type": r.source_type, "source_ref": r.source_ref,
             "status": r.status, "confidence": r.confidence, "margin": r.margin,
             "version": r.version, "parent": r.parent, "derived_from": list(r.derived_from or []),
+            "waived": bool(r.waived),
         }
         for r in rows
     ]

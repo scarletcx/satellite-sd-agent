@@ -117,15 +117,33 @@ def test_model_context_window_hints():
     assert context_window_for_model("gpt-4.1") == 1_000_000
     assert context_window_for_model("claude-sonnet-4-5") == 200_000
     assert context_window_for_model("qwen-plus") == 131_072
+    assert context_window_for_model("deepseek-flash") == 1_000_000
     assert context_window_for_model("custom-256k") == 262_144
 
 
 def test_context_settings_default_and_command_removed(client):
     settings = client.get("/api/v1/settings/chat", headers=HEADERS).json()
-    assert settings["default_window"] == 262_144
+    assert settings["default_window"] == 256_000
 
     session_id = client.post("/api/v1/chat/sessions", headers=HEADERS, json={}).json()["id"]
     reply = client.post(f"/api/v1/chat/sessions/{session_id}/messages", headers=HEADERS,
                         json={"content": "/context"})
     assert reply.status_code == 200
     assert "未知命令" in reply.json()["assistant"]["content"]
+
+
+def test_accept_all_rounds_through_new_gate(client):
+    """一键确认应在一次调用内处理输入门禁，以及随后出现的新校验门禁（如质量超限）。"""
+    task_id = _create(client, mass_limit=70)
+    detail = _wait(client, task_id)
+    assert detail["status"] == "awaiting_gate"
+
+    result = client.post(f"/api/v1/missions/{task_id}/reviews/accept-all",
+                         headers=HEADERS, json={"reviewer": "tester"})
+    assert result.status_code == 200, result.text
+    payload = result.json()
+    assert payload["rounds"] >= 2
+    assert payload["remaining_confirmations"] == 0
+
+    detail = _wait(client, task_id, ("succeeded", "failed"), timeout_s=12)
+    assert detail["status"] == "succeeded", detail

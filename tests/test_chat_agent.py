@@ -108,18 +108,29 @@ def test_mission_title_and_rename(client):
     assert client.get(f"/api/v1/missions/{default}", headers=HEADERS).json()["title"]
 
 
-def test_chat_creates_mission_and_lists(client):
+def test_chat_design_flow_requires_confirmation(client):
     session_id = _new_session(client)
-    response = client.post(f"/api/v1/chat/sessions/{session_id}/messages", headers=HEADERS,
-                           json={"content": "新建任务：设计一颗 500km SSO 光学遥感小卫星"})
-    assert response.status_code == 200, response.text
-    meta = response.json()["assistant"]["meta"]
-    assert meta.get("tool", {}).get("task_id") or "已创建任务" in response.json()["assistant"]["content"]
+    before = client.get("/api/v1/missions?page_size=1", headers=HEADERS).json()["total"]
 
-    listing = client.post(f"/api/v1/chat/sessions/{session_id}/messages", headers=HEADERS,
-                          json={"content": "查看任务列表"})
-    assert listing.status_code == 200
-    assert "t-" in listing.json()["assistant"]["content"]
+    first = client.post(f"/api/v1/chat/sessions/{session_id}/messages", headers=HEADERS,
+                        json={"content": "辅助我设计一颗通信卫星"})
+    assert first.status_code == 200, first.text
+    meta = first.json()["assistant"]["meta"]
+    assert meta.get("action") in ("update_mission_draft", "clarify")
+    assert "确认创建" in first.json()["assistant"]["content"]
+    assert client.get("/api/v1/missions?page_size=1", headers=HEADERS).json()["total"] == before, \
+        "未确认前不得创建任务"
+
+    second = client.post(f"/api/v1/chat/sessions/{session_id}/messages", headers=HEADERS,
+                         json={"content": "轨道 SSO，高度 500km，寿命 5 年，质量上限 100kg"})
+    answer = second.json()["assistant"]["content"]
+    assert "已知" in answer and "确认创建" in answer
+
+    third = client.post(f"/api/v1/chat/sessions/{session_id}/messages", headers=HEADERS,
+                        json={"content": "确认创建"})
+    assert "已创建任务" in third.json()["assistant"]["content"]
+    after = client.get("/api/v1/missions?page_size=1", headers=HEADERS).json()["total"]
+    assert after == before + 1
 
 
 def test_streaming_endpoint_emits_deltas(client):

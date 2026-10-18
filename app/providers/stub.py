@@ -190,17 +190,57 @@ class StubProvider:
 
     # ------------------------------------------------------------- 对话（个人 agent）
     @staticmethod
+    def _parse_constraints(text: str) -> dict:
+        import re
+
+        constraints: dict = {}
+        if re.search(r"SSO|太阳同步", text, re.I):
+            constraints["orbit_type"] = "SSO"
+        elif re.search(r"GEO|地球静止", text, re.I):
+            constraints["orbit_type"] = "GEO"
+        elif re.search(r"LEO|低轨", text, re.I):
+            constraints["orbit_type"] = "LEO"
+        match = re.search(r"(\d+(?:\.\d+)?)\s*(?:km|公里|千米)", text, re.I)
+        if match:
+            constraints["altitude_km"] = float(match.group(1))
+        match = re.search(r"(\d+(?:\.\d+)?)\s*年", text)
+        if match:
+            constraints["lifetime_years"] = float(match.group(1))
+        match = re.search(r"(\d+(?:\.\d+)?)\s*kg", text, re.I)
+        if match:
+            constraints["mass_limit_kg"] = float(match.group(1))
+        if re.search(r"光学|遥感", text):
+            constraints["payload"] = "光学遥感载荷"
+        elif "通信" in text:
+            constraints["payload"] = "通信载荷"
+        return constraints
+
+    @staticmethod
     def _chat_plan(context: dict) -> dict:
         import re
 
         question = str(context.get("question") or "")
         task = re.search(r"t-\d{8}-\d{3}", question)
+        pending = context.get("pending_mission") or {}
+        confirm = any(word in question for word in
+                      ("确认创建", "开始设计", "按默认参数创建", "确认开始", "可以开始"))
+        design_intent = (("设计" in question and ("卫星" in question or "任务" in question))
+                         or "辅助我设计" in question or "新建任务" in question)
+        param_hint = any(word in question for word in
+                         ("轨道", "高度", "寿命", "质量", "载荷", "SSO", "LEO", "GEO", "km", "km"))
 
+        if confirm and pending:
+            return {"action": "create_mission",
+                    "goal": pending.get("goal"),
+                    "args": {"constraints": pending.get("constraints") or {},
+                             "title": pending.get("title"), "confirmed": True}}
+        if design_intent or (pending and param_hint):
+            constraints = {**(pending.get("constraints") or {}), **StubProvider._parse_constraints(question)}
+            goal = pending.get("goal") or question
+            return {"action": "update_mission_draft",
+                    "args": {"goal": goal, "constraints": constraints}}
         if any(word in question for word in ("自动完成审核", "全部确认", "一键确认", "一键审核", "全部审核")):
-            return {"action": "accept_all",
-                    "args": {"task_id": task.group(0) if task else None}}
-        if ("新建" in question and "任务" in question) or "设计一颗" in question:
-            return {"action": "create_mission", "goal": question, "args": {}}
+            return {"action": "accept_all", "args": {"task_id": task.group(0) if task else None}}
         if "任务" in question and any(word in question for word in
                                       ("列表", "有哪些", "进行中", "未完成", "已完成")):
             return {"action": "list_missions", "args": {}}
