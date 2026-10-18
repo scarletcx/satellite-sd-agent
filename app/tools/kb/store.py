@@ -30,6 +30,7 @@ KW_WEIGHT = 0.3
 # 初值 0.35（docs/04 §5）。标定记录（合成语料 4 篇）：正例 rank1 ≥ 0.52，无关查询 ≤ 0.17。
 # 语料 / 切分 / embedding 变更后需重新标定并更新此处。
 SCORE_THRESHOLD = 0.35
+_MAX_CANDIDATE_K = 2000  # 带过滤条件时的最大召回规模（逐步扩大，避免漏掉会话附件）
 
 
 class KbError(ValueError):
@@ -68,8 +69,11 @@ def _match_filters(meta: dict, filters: dict) -> bool:
         return False
     if filters.get("doc_type") and meta.get("doc_type") != filters["doc_type"]:
         return False
-    if filters.get("session_id") and meta.get("session_id") != filters["session_id"]:
-        return False
+    if filters.get("session_id"):
+        chunk_session = meta.get("session_id")
+        # 全局文档（无 session_id，含种子语料/公开语料）对所有会话可见；只排除其他会话的附件
+        if chunk_session and chunk_session != filters["session_id"]:
+            return False
     if filters.get("is_synthetic") is False and meta.get("is_synthetic"):
         return False
     if filters.get("year_from"):
@@ -168,17 +172,26 @@ def search(query: str, filters: dict | None = None, top_k: int = 8,
     dim_mismatch = 0
     index_mode = "scan"
 
-    # sqlite-vec 先做近邻召回；不可用/索引为空时回退全量扫描
-    vec_hits = vec_index.query_vectors(len(query_vector), query_vector, k=candidate_k)
-
     with new_session() as session:
         manifests = {m.doc_id: m for m in session.scalars(select(CorpusManifest)).all()}
-        if vec_hits:
+        # 近邻召回后再过滤会漏掉「不在全局 top-k 内」的目标（如本会话附件），
+        # 因此带过滤条件时逐步扩大召回规模，直到凑够 top_k 或索引取尽。
+        limit = max(int(candidate_k), top_k)
+        while True:
+            vec_hits = vec_index.query_vectors(len(query_vector), query_vector, k=limit)
+            if not vec_hits:
+                index_mode = "scan"
+                rows = session.scalars(select(KbChunk)).all()
+                break
             index_mode = "sqlite-vec"
             ids = [chunk_id for chunk_id, _ in vec_hits]
-            rows = session.scalars(select(KbChunk).where(KbChunk.id.in_(ids))).all()
-        else:
-            rows = session.scalars(select(KbChunk)).all()
+            candidates = session.scalars(select(KbChunk).where(KbChunk.id.in_(ids))).all()
+            rows = [row for row in candidates
+                    if _match_filters(dict(row.meta or {}), filters)]
+            if (len(rows) >= top_k or len(vec_hits) < limit
+                    or limit >= _MAX_CANDIDATE_K):
+                break
+            limit = min(limit * 4, _MAX_CANDIDATE_K)
 
         scored: list[tuple[float, KbChunk, dict]] = []
         for row in rows:

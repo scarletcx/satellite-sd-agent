@@ -122,7 +122,8 @@
 | `chat_messages` | `id` integer PK 自增、`session_id`（索引）、`role`（user/assistant/system）、`content`、`meta` json（citations/action/index_mode）、`created_at` | 短期记忆，前端直接读取渲染 |
 | `chat_documents` | `id` text PK（`cd-NNNN`，会话内序号）、`session_id`（索引）、`doc_id`（→ corpus_manifest）、`filename`、`chunks`、`created_at` | 会话附件 |
 
-- 记忆策略：短期 = 最近 12 条消息；长期 = `chat_sessions.summary`（每累计 10 条消息刷新）
+- 记忆策略：短期 = 全部消息保留（超过窗口阈值时按 `keep_recent`（默认 6 条）保留最近若干条、
+  其余折叠进摘要，不再粗暴只取最近 N 条）；长期 = `chat_sessions.summary`（每累计 10 条消息刷新）
 - 删除会话：级联删除消息与附件记录，并删除对应知识库文档与向量索引
 
 ## 3. 向量检索（sqlite-vec）
@@ -137,12 +138,16 @@ CREATE VIRTUAL TABLE IF NOT EXISTS kb_vec_1024
 
 **混合检索流程**：
 
-1. sqlite-vec 近邻召回（默认 top-200，`WHERE embedding MATCH ? AND k = ? ORDER BY distance`）
-2. 元数据过滤（module / doc_type / session_id / is_synthetic 等，在 SQLite 行上判断）
+1. sqlite-vec 近邻召回（默认 top-200，`WHERE embedding MATCH ? AND k = ? ORDER BY distance`）；
+   带过滤条件时按 4 倍逐步扩大召回（上限 2000），直到凑够 Top-K 或索引取尽，避免目标不在
+   全局 top-k 内被截断
+2. 元数据过滤（module / doc_type / session_id / is_synthetic 等，在 SQLite 行上判断）；
+   `session_id` 过滤语义为「本会话附件 + 全局文档（无 session_id）」，其他会话附件隔离
 3. 与关键词重叠度加权：`score = 0.7 × cosine + 0.3 × kw`（初值，评测后调优）
 4. 阈值过滤（默认 `score ≥ 0.35`；聊天会话检索用 0.18 偏召回）→ 返回 Top-K
 
 - 扩展不可用或索引为空时自动回退「JSON 向量全量扫描」，返回结构与阈值不变
+- `year_from` 过滤仅在 chunk 元数据含 `year` 时生效（当前摄取流程不写 `year`）
 - 权重/阈值变更需开 ADR（见 [adr/README](./adr/README.md) 待记录清单）
 
 ## 4. 文件与制品目录

@@ -36,7 +36,8 @@
 上传文件（multipart）
   → ① 存原文 corpus/raw/<module>/<doc_id>.<ext>，计算 sha256
   → ② 解析（PDF: PyMuPDF / DOCX: python-docx / 网页: trafilatura / CSV: pandas）
-  → ③ 切分（500~800 token/块，overlap 15%；表格转 Markdown 块）
+  → ③ 切分（目标 600 字符/块，重叠 15%，实际块长 ≤ ~690 字符；按 `。！？!?；;` 与换行断句，
+    超长句按 510 步长硬切；PDF 逐页切分、不跨页并记录页码）
   → ④ 生成元数据（module / doc_type / year / page / is_synthetic）
   → ⑤ embedding（bge-m3，1024 维，批处理）
   → ⑥ 入库 kb_chunks + corpus_manifest；更新 corpus_version
