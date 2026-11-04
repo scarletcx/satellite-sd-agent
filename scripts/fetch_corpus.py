@@ -5,7 +5,8 @@
   .venv/bin/python scripts/fetch_corpus.py --only cubesat-101
 
 产物：corpus/raw/<module>/<filename>；索引 corpus/raw/manifest.json（sha256 / 许可 / 大小 / 时间）。
-说明：NASA 文档为美国政府作品（公有领域）；机构标准类文档请按 collection-checklist 人工获取并遵守许可。
+说明：NASA 文档为美国政府作品（公有领域）；随仓库预装 3 份并可用 make seed-corpus 导入。
+      机构标准类文档请按 collection-checklist 人工获取并遵守许可。
 """
 from __future__ import annotations
 

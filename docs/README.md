@@ -56,7 +56,7 @@
 9. ✅ 供应商注册表 + 前端「设置」页（任意第三方，保存即生效，ADR-0006）；**真实 Key 联调完成**（第三方网关：4 次调用 / ¥0.43 / 91-91 可追溯）
 10. ✅ 任务级模型选择（A1 `provider_id`）、执行进度与过程提示（含门禁暂停态）、Word 在线预览（A13 docx→HTML）
 11. ✅ C5 轨道交叉验证（skyfield/SGP4，ADR-0004 选型落地）；S7 接入 LLM、SSE 断线续传、任务列表页、S8 白名单护栏、引用自检
-12. ✅ 开放语料抓取（`make corpus-fetch`，3 份 NASA 公有领域文档 / 3037 chunks 已入库）；embedding 后端可切换（`EMBEDDING_BACKEND=bge-m3`，跨后端维度守卫）
+12. ✅ 开放语料抓取（`make corpus-fetch`）与预装导入（`make seed-corpus`，3 份 NASA 公有领域文档 / 约 3033 chunks）；embedding 后端可切换（`EMBEDDING_BACKEND=bge-m3`，跨后端维度守卫）
 13. ✅ 个人本地 agent：会话/消息/摘要/附件全部落 SQLite（前端直接读渲染）；sqlite-vec 向量索引；LangGraph 编排聊天（plan → retrieve → answer）；多会话与文档上传；聊天主页
 14. 下一步：语料继续按 [collection-checklist.md](./collection-checklist.md) 采集；pgvector 仅作为企业部署备选（[08](./08-storage.md)）
 

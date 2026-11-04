@@ -29,6 +29,9 @@
 | 合成语料 | `corpus/synthetic/` | `synthetic` 标识 | 生成 → 摄取（`is_synthetic=true`） |
 
 - 登记强制项：`doc_id / title / source_url / license / sha256 / module / doc_type / is_synthetic`
+- 预装：仓库随附 3 份 NASA 公有领域文档（SE Handbook / Risk Handbook / CubeSat 101），
+  清单与 sha256 见 `corpus/raw/manifest.json`，用 `make seed-corpus` 导入；UCS 原始 xlsx、
+  用户上传文件与许可未确认资料不入库（详见 `corpus/README.md`）。
 
 ## 3. 摄取流水线（对应 B2）
 
@@ -131,7 +134,8 @@ export EMBEDDING_MODEL=BAAI/bge-m3      # 可选
 - 两种后端维度均为 1024；切换后需**重新摄取**语料；
 - 维度不一致的旧 chunk 在检索时会被跳过，响应里带 `dim_mismatch` 计数与提示；
 - **跨语言限制**：hashing 后端只做字面匹配，中文查询无法命中英文语料；跨语言检索需切到 bge-m3；
-- 真实语料抓取：`corpus/sources.json` + `make corpus-fetch`（已抓取 3 份 NASA 公有领域文档，共 3037 chunks）。
+- 真实语料抓取：`corpus/sources.json` + `make corpus-fetch`；仓库已预装 3 份 NASA 公有领域文档，
+  用 `make seed-corpus` 导入（幂等）。按当前切分约 3033 chunks（SE Handbook 1513 + Risk 1067 + CubeSat 453）。
 
 **企业部署备选（非默认）**：Postgres 16 + pgvector 仍在 [08](./08-storage.md) 保留为可选方案；个人 agent 模式不依赖 Docker。
 

@@ -52,13 +52,16 @@ cd web && npm install && npm run dev    # http://localhost:5173（主页即对�
 
 # 4) 测试与常用脚本
 make test                   # 单元 + 流水线 + API 冒烟（94 个用例）
-make seed                   # 导入种子语料（幂等）
-make corpus-fetch           # 抓取开放许可语料（NASA 公开文档；产物在 corpus/raw/，不入库）
+make seed                   # 导入 4 份合成样例（幂等）
+make seed-corpus            # 导入预装 3 份 NASA 公有领域语料（幂等）
+make corpus-fetch           # 重新下载并校验公开语料（已随仓库预装，网络可用时）
 make demo-adv               # 拦截演示：无计算依据的数字被校验层拦下（导出 409）
 make reference              # 生成 V5 历史对比参考分布（UCS 公开数据）
 make snapshot TASK=<id>     # 导出任务全量快照（zip）
 make cost-report TASK=<id>  # 任务成本与 Token 用量报告
 ```
+
+预装语料的来源、许可与 sha256 见 [`corpus/README.md`](corpus/README.md)；只分发明确允许再分发的公开文档。
 
 ## 个人 agent 冒烟（会话 / 上传 / 问答）
 
@@ -152,7 +155,7 @@ specs/            # OpenAPI 3.0 + JSON Schema（单一事实源）
 docs/             # 开发文档 01~15 + ADR（含 ADR-0007 个人 agent 方案）
 tests/            # 单元 / 流水线 / API / 会话 / 向量索引测试
 data/             # 示例选型库与历史参考分布
-corpus/           # 语料（sources.json 可复现抓取；raw/ 不入库）
+corpus/           # 预装 3 份 NASA 公有领域文档 + sources/manifest；其他 raw 不入库
 artifacts/        # 任务运行产物（Word、校验报告、trace）
 ```
 

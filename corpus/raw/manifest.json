@@ -1,0 +1,41 @@
+{
+  "updated_at": "2026-10-18T18:13:11.625970+00:00",
+  "sources": {
+    "nasa-se-handbook": {
+      "id": "nasa-se-handbook",
+      "title": "NASA Systems Engineering Handbook (SP-2016-6105 Rev2)",
+      "url": "https://science.nasa.gov/wp-content/uploads/2023/04/nasa_systems_engineering_handbook_0.pdf",
+      "license": "NASA-public-domain",
+      "module": "system",
+      "doc_type": "manual",
+      "filename": "nasa-se-handbook.pdf",
+      "sha256": "8eeb4887a4dc57a23049da7dd2ed556833cf98e214b240468d987873164ff688",
+      "bytes": 3773440,
+      "fetched_at": "2026-10-18T18:13:04.423733+00:00"
+    },
+    "nasa-risk-handbook": {
+      "id": "nasa-risk-handbook",
+      "title": "NASA Risk Management Handbook (SP-2011-3422)",
+      "url": "https://www.nasa.gov/wp-content/uploads/2023/08/nasa-risk-mgmt-handbook.pdf",
+      "license": "NASA-public-domain",
+      "module": "risk",
+      "doc_type": "manual",
+      "filename": "nasa-risk-handbook.pdf",
+      "sha256": "46d6107b895f7e695a44afa920998335954a0327cf3c5592bc818beb6964281e",
+      "bytes": 5623001,
+      "fetched_at": "2026-10-18T18:13:08.850789+00:00"
+    },
+    "cubesat-101": {
+      "id": "cubesat-101",
+      "title": "CubeSat 101 (NASA CSLI)",
+      "url": "https://science.nasa.gov/wp-content/uploads/2023/06/nasa_csli_cubesat_101_508.pdf",
+      "license": "NASA-public-domain",
+      "module": "system",
+      "doc_type": "manual",
+      "filename": "cubesat-101.pdf",
+      "sha256": "57d2783457cb94b69136476ca341ddf4c7dc23bf61682606e37a048e9e5ae592",
+      "bytes": 4445718,
+      "fetched_at": "2026-10-18T18:13:11.625828+00:00"
+    }
+  }
+}

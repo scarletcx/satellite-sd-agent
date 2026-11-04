@@ -16,12 +16,19 @@ logs/
 # 运行产物
 artifacts/
 
-# 语料原文（体积大、许可各异，不入库）
-corpus/raw/
+# 语料：仅预装 sources.json 中明确允许再分发的 NASA 公有领域文档
+# 其余 raw 文件（用户上传、UCS 原始表、许可未确认资料）不入库
+corpus/raw/*
+!corpus/raw/manifest.json
+!corpus/raw/system/
+!corpus/raw/system/nasa-se-handbook.pdf
+!corpus/raw/system/cubesat-101.pdf
+!corpus/raw/risk/
+!corpus/raw/risk/nasa-risk-handbook.pdf
 
-# 交付/答辩材料（不入库）
+# 本地材料（不入库）
 answer/
-*.pdf
+/*.pdf
 
 # 本地工具与会话数据
 .commandcode/
