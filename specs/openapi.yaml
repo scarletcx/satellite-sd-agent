@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: AI 卫星总体设计助手 API
-  version: 0.7.2
+  version: 0.8.0
   description: |
     由 `docs/07-api.md`（v0.2 细化版）生成，用途：**Apifox / Postman 直接导入进行手动测试**。
     - 本地 Base URL：`http://127.0.0.1:8000/api/v1`
@@ -1073,6 +1073,146 @@ paths:
                 last_ingest_at: '2026-10-05T08:40:00Z'
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /formulas:
+    get:
+      operationId: listFormulas
+      tags: [Formulas]
+      summary: 公式清单
+      description: 返回可编辑的程序性计算公式、变量、版本与自定义状态。
+      parameters:
+        - name: tool
+          in: query
+          schema: { type: string }
+        - name: category
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: 公式列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Formula' } }
+                  total: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /formulas/constants:
+    get:
+      operationId: formulaConstants
+      tags: [Formulas]
+      summary: 公式常量
+      responses:
+        '200':
+          description: 常量列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/FormulaConstant' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /formulas/{formula_id}:
+    parameters:
+      - name: formula_id
+        in: path
+        required: true
+        schema: { type: string }
+        example: mass.total_with_margin
+    get:
+      operationId: getFormula
+      tags: [Formulas]
+      summary: 公式详情与版本历史
+      responses:
+        '200':
+          description: 公式
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Formula'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateFormula
+      tags: [Formulas]
+      summary: 保存公式（安全表达式校验 + 版本递增）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FormulaUpdateRequest'
+      responses:
+        '200':
+          description: 已保存
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Formula'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /formulas/{formula_id}/preview:
+    parameters:
+      - name: formula_id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: previewFormula
+      tags: [Formulas]
+      summary: 用示例或给定上下文试算
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                context:
+                  type: object
+                  additionalProperties: { type: number }
+      responses:
+        '200':
+          description: 试算结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormulaPreview'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /formulas/{formula_id}/reset:
+    parameters:
+      - name: formula_id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: resetFormula
+      tags: [Formulas]
+      summary: 恢复默认公式
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                updated_by: { type: string }
+      responses:
+        '200':
+          description: 已恢复
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Formula'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /healthz:
     get:
       operationId: healthz
@@ -1634,6 +1774,70 @@ components:
         corpus_version: { type: string }
         embedding_model: { type: string }
         last_ingest_at: { type: string, format: date-time }
+
+    # ---------- 公式管理 ----------
+    FormulaVariable:
+      type: object
+      properties:
+        symbol: { type: string }
+        label: { type: string }
+        unit: { type: string }
+      required: [symbol, label]
+    Formula:
+      type: object
+      properties:
+        id: { type: string }
+        tool: { type: string }
+        output_key: { type: string }
+        category: { type: string }
+        name: { type: string }
+        description: { type: string }
+        expression: { type: string }
+        default_expression: { type: string }
+        variables: { type: array, items: { $ref: '#/components/schemas/FormulaVariable' } }
+        sample_context:
+          type: object
+          additionalProperties: { type: number }
+        unit: { type: string }
+        version: { type: integer }
+        is_custom: { type: boolean }
+        updated_by: { type: string }
+        updated_at: { type: string, nullable: true }
+        history:
+          type: array
+          items:
+            type: object
+            properties:
+              version: { type: integer }
+              expression: { type: string }
+              updated_by: { type: string }
+              updated_at: { type: string, nullable: true }
+      required: [id, tool, output_key, category, name, expression, version, is_custom]
+    FormulaConstant:
+      type: object
+      properties:
+        symbol: { type: string }
+        label: { type: string }
+        unit: { type: string }
+        value: { type: number }
+      required: [symbol, label, value]
+    FormulaUpdateRequest:
+      type: object
+      properties:
+        expression: { type: string, maxLength: 2000 }
+        description: { type: string, maxLength: 2000 }
+        updated_by: { type: string, maxLength: 64 }
+      required: [expression]
+    FormulaPreview:
+      type: object
+      properties:
+        formula_id: { type: string }
+        expression: { type: string }
+        context:
+          type: object
+          additionalProperties: { type: number }
+        value: { type: number }
+      required: [formula_id, expression, value]
 
     # ---------- 系统 ----------
     HealthResponse:

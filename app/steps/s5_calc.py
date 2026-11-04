@@ -10,6 +10,7 @@ import json
 from app.db import new_session
 from app.models import CalculationRecord, Mission, SelectionCandidate
 from app.orchestrator.ids import next_calc_ids, next_candidate_ids
+from app.services import formulas as formula_service
 from app.steps.common import load_inputs, load_params, upsert_parameter
 from app.tools.calc.adcs import AdcsInput, adcs_estimate
 from app.tools.catalog import select_candidates
@@ -21,11 +22,16 @@ from app.tools.calc.budgets import (
     mass_budget,
     power_budget,
 )
-from app.tools.calc.constants import FORMULA_VERSIONS
 from app.tools.calc.eps import EpsInput, eps_sizing
 from app.tools.calc.link import LinkInput, link_budget
 from app.tools.calc.orbit import OrbitInput, orbit_coverage
 from app.tracing import task_dir
+
+
+def _apply_formula(tool: str, result, context: dict):
+    """应用工程师自定义的公式覆盖；默认公式不走覆盖，保持原实现。"""
+    updates = formula_service.apply_overrides(tool, context)
+    return result.model_copy(update=updates) if updates else result
 
 
 def run(ctx: dict) -> dict:
@@ -38,17 +44,35 @@ def run(ctx: dict) -> dict:
 
     # ---- C5 轨道与覆盖 ----
     orbit_res = orbit_coverage(OrbitInput(**inputs["orbit"]))
+    orbit_res = _apply_formula("calc.orbit", orbit_res,
+                               {**inputs["orbit"], **orbit_res.model_dump()})
+    if "nodal_precession_deg_day" in formula_service.overrides_for_tool("calc.orbit"):
+        orbit_res = orbit_res.model_copy(update={
+            "sso_ok": abs(orbit_res.nodal_precession_deg_day - 0.9856) < 0.05,
+        })
     # ---- C1 质量 ----
     mass_res = mass_budget(MassInput(**inputs["mass"]))
+    mass_res = _apply_formula("calc.mass_budget", mass_res,
+                              {**inputs["mass"], **mass_res.model_dump()})
     # ---- C2 功耗 ----
     power_res = power_budget(PowerInput(**inputs["power"]))
+    power_res = _apply_formula("calc.power_budget", power_res, {
+        **inputs["power"], **power_res.model_dump(),
+        "t_sun_min": inputs["power"]["t_orbit_min"] - inputs["power"]["t_ecl_min"],
+    })
     # ---- C4 链路 ----
     link_res = link_budget(LinkInput(**inputs["link"]))
+    link_res = _apply_formula("calc.link_budget", link_res,
+                              {**inputs["link"], **link_res.model_dump()})
     # ---- C6 太阳翼（EOL 功率 = 轨道平均功耗 + 阴影期再充电功率）----
     life_years = float(constraints.get("lifetime_years") or 3)
     t_sun_h = max((inputs["power"]["t_orbit_min"] - inputs["power"]["t_ecl_min"]) / 60.0, 0.01)
     p_eol = power_res.p_avg_w + power_res.e_ecl_wh / t_sun_h
     eps_res = eps_sizing(EpsInput(p_eol_w=p_eol, life_years=life_years, **inputs["eps"]))
+    eps_res = _apply_formula("calc.eps", eps_res, {
+        **inputs["eps"], "p_eol_w": p_eol, "life_years": life_years,
+        **eps_res.model_dump(),
+    })
     # ---- C7 姿控粗算（依赖 C1 质量、C5 周期、C6 太阳翼面积与包络力臂）----
     system_design = ctx.get("system_design")
     if not system_design:
@@ -70,10 +94,14 @@ def run(ctx: dict) -> dict:
         "t_orbit_min": orbit_res.period_min,
     }
     adcs_res = adcs_estimate(AdcsInput(**adcs_inputs))
+    adcs_res = _apply_formula("calc.adcs", adcs_res,
+                              {**adcs_inputs, **adcs_res.model_dump()})
     # ---- C3 数据量（orbits_per_day 采用 C5 结果）----
     data_input = dict(inputs["data"])
     data_input["orbits_per_day"] = round(orbit_res.orbits_per_day, 4)
     data_res = data_budget(DataInput(**data_input))
+    data_res = _apply_formula("calc.data_budget", data_res,
+                              {**data_input, **data_res.model_dump()})
 
     ctx["results"] = {
         "orbit": orbit_res.model_dump(),
@@ -86,6 +114,10 @@ def run(ctx: dict) -> dict:
     }
 
     mission_id = ctx["task_id"]
+    formula_versions = {tool: formula_service.version_for_tool(tool) for tool in (
+        "calc.orbit", "calc.mass_budget", "calc.power_budget", "calc.eps",
+        "calc.adcs", "calc.data_budget", "calc.link_budget",
+    )}
     with new_session() as session:
         ids = next_calc_ids(session, mission_id, 7)
         for rid, tool, record_inputs, outputs, units in (
@@ -101,7 +133,7 @@ def run(ctx: dict) -> dict:
         ):
             session.add(CalculationRecord(
                 id=rid, mission_id=mission_id, tool=tool,
-                formula_version=FORMULA_VERSIONS[tool],
+                formula_version=formula_versions[tool],
                 inputs=record_inputs, outputs=outputs, units_map=units,
             ))
 

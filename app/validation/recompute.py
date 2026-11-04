@@ -90,10 +90,19 @@ def recompute(tool: str, inputs: dict) -> dict[str, float]:
 
 
 def v2_recompute(records: list[dict]) -> list[dict]:
-    """records: [{id, tool, inputs, outputs}]；与记录值比对，不一致 → block。"""
+    """records: [{id, tool, formula_version, inputs, outputs}]；与记录值比对，不一致 → block。"""
     findings: list[dict] = []
     checked = 0
     for record in records:
+        if "+ui" in str(record.get("formula_version") or ""):
+            findings.append({
+                "rule_id": "V2", "status": "warn", "param_id": None,
+                "message": (f"公式已由工程师覆盖（{record['formula_version']}）："
+                            f"{record['tool']} 跳过独立基线复算，请复核公式版本与结果"),
+                "evidence": {"record_id": record["id"], "tool": record["tool"],
+                             "formula_version": record["formula_version"], "overridden": True},
+            })
+            continue
         try:
             expected = recompute(record["tool"], record["inputs"] or {})
         except (KeyError, TypeError, ValueError) as exc:

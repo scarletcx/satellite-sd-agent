@@ -30,6 +30,30 @@ const PARAM_STATUS: Record<string, string> = {
 
 const VALIDATION_COLOR: Record<string, string> = { pass: "green", warn: "gold", block: "red" };
 
+const PARAM_FORMULA: Record<string, string> = {
+  "mass.total": "mass.total",
+  "mass.total_with_margin": "mass.total_with_margin",
+  "power.p_avg_w": "power.p_avg_w",
+  "power.e_ecl_wh": "power.e_ecl_wh",
+  "power.battery_capacity_wh": "power.battery_capacity_wh",
+  "power.p_bol_w": "eps.p_bol_w",
+  "power.sa.area": "eps.sa_area_m2",
+  "link.fs_loss_db": "link.fs_loss_db",
+  "link.ebn0_db": "link.ebn0_db",
+  "link.margin_db": "link.margin_db",
+  "orbit.period_min": "orbit.period_min",
+  "orbit.nodal_precession_deg_day": "orbit.nodal_precession_deg_day",
+  "orbit.orbits_per_day": "orbit.orbits_per_day",
+  "data.per_orbit_gb": "data.per_orbit_gb",
+  "data.per_day_gb": "data.per_day_gb",
+  "data.downlink_capacity_gb": "data.downlink_capacity_gb",
+  "data.storage_required_gb": "data.storage_required_gb",
+  "adcs.t_sp_unm": "adcs.t_sp_unm",
+  "adcs.t_total_unm": "adcs.t_total_unm",
+  "adcs.h_required_nms": "adcs.h_required_nms",
+  "adcs.mtq_dipole_am2": "adcs.mtq_dipole_am2",
+};
+
 function formatNumber(value: number): string {
   if (Number.isInteger(value)) return String(value);
   return String(Number(value.toFixed(3)));
@@ -360,7 +384,7 @@ export default function MissionDetail() {
       render: (value: string | null) => (value ? <Badge color={VALIDATION_COLOR[value]} text={value} /> : "-"),
     },
     {
-      title: "操作", width: 190,
+      title: "操作", width: 230,
       render: (_, row) => (
         <Space size={0}>
           <Button
@@ -384,6 +408,14 @@ export default function MissionDetail() {
               onClick={() => openReview(row, "accept", row.value)}
             >
               编辑
+            </Button>
+          )}
+          {PARAM_FORMULA[row.id] && (
+            <Button
+              size="small" type="link"
+              onClick={() => navigate(`/formulas?focus=${encodeURIComponent(PARAM_FORMULA[row.id])}`)}
+            >
+              公式
             </Button>
           )}
         </Space>
@@ -663,6 +695,7 @@ export default function MissionDetail() {
               </Popconfirm>
             )}
             <Button size="small" onClick={load}>刷新</Button>
+            <Button size="small" onClick={() => navigate("/formulas")}>计算公式</Button>
             <Popconfirm
               title="删除该任务？"
               description="将删除任务、参数、计算记录、校验结果与文档制品，无法恢复。"

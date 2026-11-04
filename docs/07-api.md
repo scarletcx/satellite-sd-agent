@@ -153,6 +153,11 @@
 | D12 | POST | `/chat/sessions/{id}/messages/stream` | 流式对话 | SSE：user → delta → done |
 | C8 | GET | `/settings/chat` | 读取上下文设置 | 自动压缩开关、阈值、窗口等 |
 | C9 | PUT | `/settings/chat` | 保存上下文设置 | 保存即生效 |
+| F1 | GET | `/formulas` | 公式清单 | 按工具/分系统过滤；含版本与自定义状态 |
+| F2 | GET | `/formulas/{id}` | 公式详情 | 表达式、变量、示例输入、版本历史 |
+| F3 | PUT | `/formulas/{id}` | 保存公式 | 安全表达式校验 + 版本递增 + 审计 |
+| F4 | POST | `/formulas/{id}/preview` | 公式试算 | 用示例或给定上下文求值 |
+| F5 | POST | `/formulas/{id}/reset` | 恢复默认 | 恢复默认表达式并记录版本 |
 
 ---
 
@@ -643,6 +648,19 @@ curl -s -X POST {{baseUrl}}/chat/sessions/<sid>/documents -H 'Authorization: Bea
   "embedding_model": "bge-m3", "last_ingest_at": "2026-10-05T08:40:00Z" }
 ```
 
+### F1~F5 公式管理（程序性计算公式）
+
+- **请求**：`GET {{baseUrl}}/formulas?tool=calc.mass_budget`
+- **业务逻辑**：返回可编辑的标量公式（质量/功耗/太阳翼/姿控/数据/链路/轨道周期与进动），
+  含 `expression`、变量、示例输入、`version`、`is_custom` 与版本历史。
+- **保存**：`PUT /formulas/{id}`，请求体 `{ "expression": "...", "description": "...", "updated_by": "engineer" }`；
+  后端用安全表达式求值器校验（只允许数字/变量/四则运算/幂/少量数学函数），版本 +1，并写入 `formula_versions`。
+- **试算**：`POST /formulas/{id}/preview`，可传 `context` 覆盖示例输入；返回 `value`。
+- **恢复**：`POST /formulas/{id}/reset`，恢复默认表达式并记录新版本。
+- **对计算的影响**：S5 对新任务读取 `is_custom=true` 的公式覆盖；计算记录 `formula_version` 带
+  `+uiN` 后缀。V2 独立复算遇到覆盖公式时降级为 warn（跳过内置基线），要求工程师复核。
+- **常量**：`GET /formulas/constants` 返回 `pi/RE_KM/MU/J2/C/K_DBW/E0/P0/B_MIN` 的当前值。
+
 ---
 
 ## 5. 系统接口
@@ -724,6 +742,7 @@ PUT /api/v1/settings/llm
 | 2026-10-06 | v0.4 | A1 支持 `provider_id`（任务级模型选择）；新增 A13 Word 在线预览 | 新增字段/接口，向后兼容 |
 | 2026-10-06 | v0.5 | 输入确认门禁（A8 语义扩展 + A14 假设台账）；新增 A15 选型候选；A4 支持 `Last-Event-ID` 断线重放；文档版本递增（A2/A10/A13 支持 `version`） | 新增字段/接口，向后兼容 |
 | 2026-10-18 | v0.6 | 个人本地 agent：新增会话接口 D1~D10（SQLite 记忆、多会话、附件上传）；不改变既有 A/B/C 接口 | 新增接口，向后兼容 |
+| 2026-10-22 | v0.8 | 新增公式管理 F1~F5（安全表达式、版本历史、试算/恢复）；聊天工具增加 `mission_progress` / `mission_results`；S5 支持公式覆盖 | 新增接口/字段，向后兼容 |
 
 ## 8. 关键取舍
 

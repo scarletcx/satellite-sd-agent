@@ -71,6 +71,38 @@ class CalculationRecord(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
+class FormulaDefinition(Base):
+    __tablename__ = "formula_definitions"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)  # 如 mass.total_with_margin
+    tool: Mapped[str] = mapped_column(String(40), index=True)      # calc.mass_budget
+    output_key: Mapped[str] = mapped_column(String(64))            # 工具输出字段名
+    category: Mapped[str] = mapped_column(String(32), index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str] = mapped_column(Text, default="")
+    expression: Mapped[str] = mapped_column(Text)
+    variables: Mapped[list] = mapped_column(JSON, default=list)
+    sample_context: Mapped[dict] = mapped_column(JSON, default=dict)
+    unit: Mapped[str] = mapped_column(String(16), default="")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    is_custom: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_by: Mapped[str] = mapped_column(String(64), default="system")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class FormulaVersion(Base):
+    __tablename__ = "formula_versions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    formula_id: Mapped[str] = mapped_column(String(80), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    expression: Mapped[str] = mapped_column(Text)
+    description: Mapped[str] = mapped_column(Text, default="")
+    updated_by: Mapped[str] = mapped_column(String(64), default="engineer")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
 class ValidationResult(Base):
     __tablename__ = "validation_results"
 

@@ -23,7 +23,7 @@ def run(ctx: dict) -> dict:
                            .filter(Assumption.mission_id == mission_id).all()},
         }
         records = [
-            {"id": row.id, "tool": row.tool,
+            {"id": row.id, "tool": row.tool, "formula_version": row.formula_version,
              "inputs": dict(row.inputs or {}), "outputs": dict(row.outputs or {})}
             for row in session.query(CalculationRecord)
             .filter(CalculationRecord.mission_id == mission_id).all()

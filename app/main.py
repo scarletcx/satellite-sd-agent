@@ -11,6 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.api import chat as chat_api
+from app.api import formulas as formulas_api
 from app.api import kb as kb_api
 from app.api import missions, parameters, settings as settings_api, system
 from app.config import settings
@@ -35,6 +36,7 @@ app.include_router(chat_api.router, prefix=API_PREFIX)
 app.include_router(missions.router, prefix=API_PREFIX)
 app.include_router(parameters.router, prefix=API_PREFIX)
 app.include_router(kb_api.router, prefix=API_PREFIX)
+app.include_router(formulas_api.router, prefix=API_PREFIX)
 app.include_router(settings_api.router, prefix=API_PREFIX)
 
 

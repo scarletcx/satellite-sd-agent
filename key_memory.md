@@ -23,7 +23,7 @@
 - R10 RAG：切片 600 字符/15%；embedding 默认 `hashing` 可切 `bge-m3`；sqlite-vec 余弦；`0.7*cosine+0.3*keyword`；阈值 0.35/聊天 0.18；会话检索=本会话+全局。
 - R11 编号=已有最大序号+1；删除任务级联清理关联数据、制品与事件历史。
 - R12 上下文窗口单位为 k tokens（默认 256k）；不展示或推断供应商模型窗口。
-- R13 完成任务前跑通 `pytest`（94 项）与 `cd web && npm run build`；接口变更同步 OpenAPI/docs。
+- R13 完成任务前跑通 `pytest`（98 项）与 `cd web && npm run build`；接口变更同步 OpenAPI/docs。
 - R14 推送 GitHub 远程；提交说明使用中文。
 
 ## 3. Never
@@ -55,8 +55,9 @@
 - 入口：`app/main.py`、`app/orchestrator/engine.py`、`app/chat/graph.py`、`app/tools/kb/store.py`、`app/validation/rules.py`、`app/tools/doc/render.py`。
 - 命令：`make test/run/seed/corpus-fetch`；`cd web && npm run build|dev`。
 - 数据：`dev.db`；`artifacts/<task_id>/`（trace.jsonl、citations.json、system-design.json、document-vN.docx、check-report.json）。
-- 接口：A1~A17、B1~B5、D1~D12、C1~C9；OpenAPI 0.7.2。
-- 测试 94 项；重点 `test_review_flow.py`、`test_chat_agent.py`、`test_kb_scope.py`、`test_ids.py`。
+- 接口：A1~A17、B1~B5、D1~D12、C1~C9、F1~F5；OpenAPI 0.8.0。
+- 测试 98 项；重点 `test_review_flow.py`、`test_chat_agent.py`、`test_kb_scope.py`、`test_ids.py`、`test_formulas.py`。
+- 公式：`formula_definitions` / `formula_versions`；安全表达式求值，S5 读自定义覆盖，记录版本带 `+uiN`。
 - 文档：README、docs/03/04/07/08/09、ADR-0007。
 
 ## 7. Progress
@@ -67,6 +68,8 @@
   - [x] RAG：会话+全局范围、召回自适应扩大、切片/检索文档对齐。
   - [x] 编号 max+1；任务删除 A17（级联+制品+事件清理）。
   - [x] 聊天：建任务先澄清、`auto_review`、SSE 流式、记忆/压缩、任务与知识库工具。
+  - [x] 聊天可实时查询任务进度/结果（步骤、门禁、参数、校验、文档）。
+  - [x] 公式管理：安全表达式编辑、试算、版本历史、恢复默认；S5 支持自定义覆盖。
   - [x] 上下文窗口按 k tokens；S3/S5 空值兜底；重新校验可从 S5 重跑；本地材料（`answer/`）。
 - Next:
   - [ ] 如需要：RAG 评测集、rerank/MMR、图片清理。

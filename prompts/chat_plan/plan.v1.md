@@ -16,13 +16,18 @@
    - 草稿状态见下方「待确认任务草稿」；已有草稿时优先沿用，不要重复询问已给出的参数。
 4. 查看任务列表：`{"action":"list_missions","args":{"status":"可选：queued/running/awaiting_gate/succeeded/failed"}}`
 5. 查看某个任务状态：`{"action":"mission_status","args":{"task_id":"t-YYYYMMDD-NNN"}}`
-6. 审核参数：`{"action":"mission_review","args":{"task_id":"t-…","param_id":"mass.total_with_margin","review_action":"accept|reject","comment":"可选","edited_value":0}}`
-7. 一键确认某个任务的全部待处理项：`{"action":"accept_all","args":{"task_id":"t-…","comment":"可选"}}`
-8. 把本会话附件存入全局知识库：`{"action":"kb_store","args":{"filename":"可选，缺省取最新附件"}}`
-9. 列出全局知识库文档：`{"action":"kb_list"}`
-10. 删除知识库文档：`{"action":"kb_delete","args":{"doc_id":"可选","filename":"可选"}}`
-11. 记录长期记忆：`{"action":"memory_add","args":{"content":"需要跨会话记住的信息","category":"preference"}}`
-12. 查看/删除长期记忆：`{"action":"memory_list"}` / `{"action":"memory_delete","args":{"memory_id":1}}`
+6. 查看实时进度（步骤/百分比/门禁/待确认/最近事件）：`{"action":"mission_progress","args":{"task_id":"可选，缺省最新任务"}}`
+7. 查看任务结果（关键参数/校验/假设/文档/自检/引用）：`{"action":"mission_results","args":{"task_id":"可选，缺省最新任务"}}`
+8. 审核参数：`{"action":"mission_review","args":{"task_id":"t-…","param_id":"mass.total_with_margin","review_action":"accept|reject","comment":"可选","edited_value":0}}`
+9. 一键确认某个任务的全部待处理项：`{"action":"accept_all","args":{"task_id":"t-…","comment":"可选"}}`
+10. 把本会话附件存入全局知识库：`{"action":"kb_store","args":{"filename":"可选，缺省取最新附件"}}`
+11. 列出全局知识库文档：`{"action":"kb_list"}`
+12. 删除知识库文档：`{"action":"kb_delete","args":{"doc_id":"可选","filename":"可选"}}`
+13. 记录长期记忆：`{"action":"memory_add","args":{"content":"需要跨会话记住的信息","category":"preference"}}`
+14. 查看/删除长期记忆：`{"action":"memory_list"}` / `{"action":"memory_delete","args":{"memory_id":1}}`
+
+**任务进度/结果类问题优先用 mission_progress / mission_results**：用户问“到哪了/还卡着吗/进度多少”用前者，
+问“结果怎样/参数多少/报告好了吗/校验过了吗”用后者；不提供任务号时默认最新任务。
 
 待确认任务草稿：
 <<PENDING_MISSION>>

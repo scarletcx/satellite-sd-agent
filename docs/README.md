@@ -59,6 +59,7 @@
 12. ✅ 开放语料抓取（`make corpus-fetch`）与预装导入（`make seed-corpus`，3 份 NASA 公有领域文档 / 约 3033 chunks）；embedding 后端可切换（`EMBEDDING_BACKEND=bge-m3`，跨后端维度守卫）
 13. ✅ 个人本地 agent：会话/消息/摘要/附件全部落 SQLite（前端直接读渲染）；sqlite-vec 向量索引；LangGraph 编排聊天（plan → retrieve → answer）；多会话与文档上传；聊天主页
 14. 下一步：语料继续按 [collection-checklist.md](./collection-checklist.md) 采集；pgvector 仅作为企业部署备选（[08](./08-storage.md)）
+15. ✅ 聊天实时查询任务进度/结果（mission_progress / mission_results）；公式管理 `/formulas`（安全表达式、变量与常量、试算、版本历史、恢复默认，S5 支持覆盖）
 
 ## 待确认事项
 

@@ -251,7 +251,16 @@ class StubProvider:
         if "任务" in question and any(word in question for word in
                                       ("列表", "有哪些", "进行中", "未完成", "已完成")):
             return {"action": "list_missions", "args": {}}
-        if task and any(word in question for word in ("状态", "进度", "审核", "评审", "通过", "拒绝")):
+        if any(word in question for word in ("进度", "到哪", "卡在", "执行到", "跑完", "还要多久")):
+            return {"action": "mission_progress",
+                    "args": {"task_id": task.group(0) if task else None}}
+        if (task or "任务" in question or "结果" in question) and any(
+                word in question for word in
+                ("结果", "指标", "报告", "文档", "方案", "校验", "质量", "功耗",
+                 "太阳翼", "余量", "参数")):
+            return {"action": "mission_results",
+                    "args": {"task_id": task.group(0) if task else None}}
+        if task and any(word in question for word in ("状态", "审核", "评审", "通过", "拒绝")):
             if any(word in question for word in ("审核", "评审", "通过", "拒绝")):
                 return {"action": "mission_review",
                         "args": {"task_id": task.group(0), "param_id": "", "review_action": "accept"}}

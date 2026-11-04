@@ -136,6 +136,43 @@ export interface MissionSummary {
   updated_at: string;
 }
 
+export interface FormulaVariable {
+  symbol: string;
+  label: string;
+  unit?: string;
+}
+
+export interface FormulaItem {
+  id: string;
+  tool: string;
+  output_key: string;
+  category: string;
+  name: string;
+  description: string;
+  expression: string;
+  default_expression: string;
+  variables: FormulaVariable[];
+  sample_context: Record<string, number>;
+  unit: string;
+  version: number;
+  is_custom: boolean;
+  updated_by: string;
+  updated_at: string | null;
+  history?: {
+    version: number;
+    expression: string;
+    updated_by: string;
+    updated_at: string | null;
+  }[];
+}
+
+export interface FormulaConstant {
+  symbol: string;
+  label: string;
+  unit: string;
+  value: number;
+}
+
 export interface ChatSessionItem {
   id: string;
   title: string;
@@ -302,6 +339,39 @@ export const api = {createMission: (body: {
   deleteMission: (id: string) =>
     request<{ task_id: string; deleted: boolean; removed: Record<string, number> }>(
       `/missions/${id}?confirm=true`, { method: "DELETE" },
+    ),
+
+  formulaConstants: () =>
+    request<{ items: FormulaConstant[] }>("/formulas/constants"),
+
+  formulaList: (params: { tool?: string; category?: string } = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value) query.set(key, value);
+    });
+    const suffix = query.toString();
+    return request<{ items: FormulaItem[]; total: number }>(
+      `/formulas${suffix ? `?${suffix}` : ""}`,
+    );
+  },
+
+  formulaGet: (id: string) =>
+    request<FormulaItem>(`/formulas/${encodeURIComponent(id)}`),
+
+  formulaUpdate: (id: string, body: { expression: string; description?: string; updated_by?: string }) =>
+    request<FormulaItem>(`/formulas/${encodeURIComponent(id)}`, {
+      method: "PUT", body: JSON.stringify(body),
+    }),
+
+  formulaReset: (id: string, updated_by = "engineer") =>
+    request<FormulaItem>(`/formulas/${encodeURIComponent(id)}/reset`, {
+      method: "POST", body: JSON.stringify({ updated_by }),
+    }),
+
+  formulaPreview: (id: string, context?: Record<string, number>) =>
+    request<{ formula_id: string; expression: string; context: Record<string, number>; value: number }>(
+      `/formulas/${encodeURIComponent(id)}/preview`,
+      { method: "POST", body: JSON.stringify({ context }) },
     ),
 
   cancelMission: (id: string) =>

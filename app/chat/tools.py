@@ -10,9 +10,15 @@ from app.tools.kb import store as kb_store
 
 TOOL_ACTIONS = {
     "create_mission", "clarify", "update_mission_draft",
-    "list_missions", "mission_status", "mission_review", "accept_all",
+    "list_missions", "mission_status", "mission_progress", "mission_results",
+    "mission_review", "accept_all",
     "kb_store", "kb_list", "kb_delete",
     "memory_add", "memory_list", "memory_delete",
+}
+
+STATUS_ZH = {
+    "queued": "排队中", "running": "执行中", "awaiting_gate": "待人工门禁",
+    "succeeded": "已完成", "failed": "失败", "canceled": "已取消",
 }
 
 REQUIRED_CONSTRAINTS = (("orbit_type", "轨道类型（SSO / LEO / GEO）"),
@@ -177,7 +183,10 @@ def _execute(action: str, params: dict, session_id: str) -> dict:
     if action == "mission_status":
         task_id = str(_param(params, "task_id") or "").strip()
         if not task_id:
-            raise ToolError("请提供任务编号（t-YYYYMMDD-NNN）")
+            latest = mission_service.list_missions(limit=1)
+            if not latest:
+                return {"content": "当前没有任务。", "meta": {"tool": action}}
+            task_id = latest[0]["task_id"]
         snapshot = mission_service.mission_snapshot(task_id)
         text = (f"任务 {snapshot['task_id']}「{snapshot['title']}」：{snapshot['status']}，"
                 f"当前步骤 {snapshot['current_step'] or '-'}")
@@ -186,6 +195,104 @@ def _execute(action: str, params: dict, session_id: str) -> dict:
             text += "；待处理门禁：" + "、".join(
                 gate.get("param_id") or gate.get("type") for gate in gates)
         return {"content": text, "meta": {"tool": action, "mission": snapshot}}
+
+    if action == "mission_progress":
+        task_id = str(_param(params, "task_id") or "").strip()
+        if not task_id:
+            latest = mission_service.list_missions(limit=1)
+            if not latest:
+                return {"content": "当前没有任务。", "meta": {"tool": action}}
+            task_id = latest[0]["task_id"]
+        progress = mission_service.mission_progress(task_id)
+        lines = [
+            f"任务 {progress['task_id']}「{progress['title']}」："
+            f"{STATUS_ZH.get(progress['status'], progress['status'])}，"
+            f"进度 {progress['percent']}%（{progress['done_steps']}/{progress['total_steps']} 步）",
+        ]
+        if progress.get("current_step"):
+            lines.append(f"当前步骤：{progress['current_step']}")
+        gates = progress.get("pending_gates") or []
+        if gates:
+            lines.append("待处理门禁：" + "、".join(
+                gate.get("param_id") or gate.get("type") for gate in gates))
+        pending = progress.get("pending_confirmations") or {}
+        pending_total = sum(int(v) for v in pending.values())
+        if pending_total:
+            lines.append(
+                f"待确认项：草案输入 {pending.get('draft_inputs', 0)}、"
+                f"未确认假设 {pending.get('open_assumptions', 0)}、"
+                f"待评审参数 {pending.get('needs_review', 0)}、"
+                f"已驳回 {pending.get('rejected', 0)}")
+        validation = progress.get("validation") or {}
+        if validation:
+            lines.append(f"最近校验：pass {validation.get('pass', 0)} / "
+                         f"warn {validation.get('warn', 0)} / block {validation.get('block', 0)}")
+        if progress.get("last_error"):
+            err = progress["last_error"]
+            lines.append(f"最近错误：{err.get('code')}：{err.get('message')}")
+        events = progress.get("recent_events") or []
+        if events:
+            recent = []
+            for item in events[-3:]:
+                detail = item.get("data") or {}
+                label = detail.get("step") or detail.get("name") or ""
+                recent.append(f"{item['event']}{('·' + label) if label else ''}")
+            lines.append("最近事件：" + "、".join(recent))
+        if progress["status"] not in ("succeeded", "failed", "canceled"):
+            lines.append("任务仍在推进；可继续问我「任务结果怎样」查看当前中间结果。")
+        return {"content": "\n".join(lines),
+                "meta": {"tool": action, "progress": progress}}
+
+    if action == "mission_results":
+        task_id = str(_param(params, "task_id") or "").strip()
+        if not task_id:
+            latest = mission_service.list_missions(limit=1)
+            if not latest:
+                return {"content": "当前没有任务。", "meta": {"tool": action}}
+            task_id = latest[0]["task_id"]
+        results = mission_service.mission_results(task_id)
+        lines = [f"任务 {results['task_id']}「{results['title']}」结果"
+                 f"（{STATUS_ZH.get(results['status'], results['status'])}）"]
+        metrics = results.get("metrics") or []
+        if metrics:
+            lines.append("关键参数：")
+            for item in metrics:
+                value = item.get("value")
+                shown = f"{value:.4g}" if isinstance(value, (int, float)) else str(value)
+                lines.append(f"- {item['name']}：{shown} {item.get('unit') or ''}"
+                             f"（{item.get('status')}）")
+        else:
+            lines.append("关键参数尚未产生（任务还在解析/检索/草案阶段）。")
+        validation = results.get("validation") or {}
+        lines.append(f"校验：pass {validation.get('pass', 0)} / "
+                     f"warn {validation.get('warn', 0)} / block {validation.get('block', 0)}")
+        blocking = results.get("blocking") or []
+        if blocking:
+            lines.append("阻断项：" + "；".join(
+                f"{item.get('rule')} {item.get('param_id') or ''} {item.get('message')}"
+                for item in blocking[:3]))
+        assumptions = results.get("assumptions") or {}
+        lines.append(f"假设：未确认 {assumptions.get('open', 0)}、"
+                     f"已确认 {assumptions.get('confirmed', 0)}、"
+                     f"已驳回 {assumptions.get('rejected', 0)}")
+        document = results.get("document") or {}
+        if document.get("ready"):
+            lines.append(f"Word 文档：v{document['version']} 已生成，可在任务详情页下载或预览。")
+        else:
+            lines.append("Word 文档：尚未生成。")
+        report = results.get("check_report")
+        if report:
+            lines.append(f"文档自检：{report.get('status')}，"
+                         f"数字 {report.get('numbers_traceable')}/{report.get('numbers_checked')} 可追溯，"
+                         f"引用问题 {report.get('citation_issues', 0)} 处。")
+        lines.append(f"计算记录 {results.get('calculation_count', 0)} 条，"
+                     f"引用 {results.get('citations', 0)} 条，"
+                     f"选型候选 {results.get('candidates', 0)} 个。")
+        if results["status"] != "succeeded":
+            lines.append("任务尚未完成，以上为当前中间结果；完成后可再问我一次。")
+        lines.append(f"任务详情：/missions/{results['task_id']}")
+        return {"content": "\n".join(lines),
+                "meta": {"tool": action, "results": results}}
 
     if action == "accept_all":
         task_id = str(_param(params, "task_id") or "").strip()

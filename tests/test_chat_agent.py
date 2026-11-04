@@ -157,6 +157,53 @@ def test_chat_default_mission_with_auto_review(client):
     assert "draft" not in statuses and "needs_review" not in statuses, statuses
 
 
+def test_chat_task_progress_and_results(client):
+    """聊天能实时查询任务进度与结果（不依赖页面）。"""
+    task_id = client.post("/api/v1/missions", headers=HEADERS, json={
+        "goal": "设计一颗 500km SSO 光学遥感小卫星",
+        "constraints": {"orbit_type": "SSO", "altitude_km": 500, "mass_limit_kg": 80},
+    }).json()["task_id"]
+    deadline = time.time() + 8
+    while time.time() < deadline:
+        detail = client.get(f"/api/v1/missions/{task_id}", headers=HEADERS).json()
+        if detail["status"] == "awaiting_gate":
+            break
+        time.sleep(0.05)
+    assert detail["status"] == "awaiting_gate", detail
+
+    session_id = _new_session(client)
+    progress = client.post(f"/api/v1/chat/sessions/{session_id}/messages", headers=HEADERS,
+                           json={"content": "现在任务进度怎么样"})
+    payload = progress.json()["assistant"]
+    assert payload["meta"]["action"] == "mission_progress", payload["meta"]
+    assert task_id in payload["content"]
+    assert "进度" in payload["content"] and "待处理门禁" in payload["content"]
+
+    result = client.post(f"/api/v1/chat/sessions/{session_id}/messages", headers=HEADERS,
+                         json={"content": "任务结果怎么样"})
+    payload = result.json()["assistant"]
+    assert payload["meta"]["action"] == "mission_results", payload["meta"]
+    assert task_id in payload["content"]
+    assert "校验" in payload["content"] and "关键参数" in payload["content"]
+
+    accepted = client.post(f"/api/v1/missions/{task_id}/reviews/accept-all",
+                           headers=HEADERS, json={"reviewer": "tester"})
+    assert accepted.status_code == 200, accepted.text
+    deadline = time.time() + 15
+    while time.time() < deadline:
+        detail = client.get(f"/api/v1/missions/{task_id}", headers=HEADERS).json()
+        if detail["status"] in ("succeeded", "failed"):
+            break
+        time.sleep(0.1)
+    assert detail["status"] == "succeeded", detail
+
+    done = client.post(f"/api/v1/chat/sessions/{session_id}/messages", headers=HEADERS,
+                       json={"content": "任务结果怎么样"})
+    content = done.json()["assistant"]["content"]
+    assert "已完成" in content
+    assert "Word 文档" in content
+
+
 def test_streaming_endpoint_emits_deltas(client):
     session_id = _new_session(client)
     response = client.post(f"/api/v1/chat/sessions/{session_id}/messages/stream",

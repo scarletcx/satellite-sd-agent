@@ -90,6 +90,17 @@
 
 ### C8 预留
 
+### C9 公式管理与覆盖
+
+- 可编辑对象：各工具的**标量公式**（周期/进动、质量总重、功耗闭合、太阳翼面积、姿控力矩、数据量、链路预算），
+  默认定义在 `app/tools/calc/formulas.py`，存 `formula_definitions` / `formula_versions`。
+- 安全求值：`app/tools/calc/formula_engine.py` 只允许数字、变量、四则运算/幂与
+  `sqrt/log10/exp/abs/min/max/sin/cos/tan/radians/degrees/round`；禁止属性访问、导入、下标等。
+- 保存前用示例输入试算；保存后 `version+1`，写版本历史；`is_custom=true` 的公式在 S5 新计算中生效，
+  计算记录 `formula_version` 带 `+uiN` 后缀。
+- V2 独立复算遇到 `+ui` 记录时降级为 warn（内置基线不再适用），要求工程师复核；恢复默认后回到内置基线。
+- 轨道可见性采样、质量分项求和等“算法型”逻辑仍由代码实现，不在可编辑公式表中。
+
 热 / 结构仅做**约束检查**（包络、温度区间），本期不实现计算。
 
 ## 3. 单位与数值规范

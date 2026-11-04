@@ -2,6 +2,7 @@ import { Layout, Menu, Tag } from "antd";
 import { Link, Route, Routes, useLocation } from "react-router-dom";
 
 import Chat from "./pages/Chat";
+import Formulas from "./pages/Formulas";
 import MissionCreate from "./pages/MissionCreate";
 import MissionDetail from "./pages/MissionDetail";
 import MissionList from "./pages/MissionList";
@@ -14,7 +15,8 @@ export default function App() {
   const location = useLocation();
   const selected = location.pathname.startsWith("/kb") ? ["kb"]
     : location.pathname.startsWith("/settings") ? ["settings"]
-      : location.pathname.startsWith("/missions") ? ["missions"] : ["chat"];
+      : location.pathname.startsWith("/formulas") ? ["formulas"]
+        : location.pathname.startsWith("/missions") ? ["missions"] : ["chat"];
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
@@ -29,6 +31,7 @@ export default function App() {
             { key: "chat", label: <Link to="/">对话</Link> },
             { key: "missions", label: <Link to="/missions">设计任务</Link> },
             { key: "kb", label: <Link to="/kb">知识库</Link> },
+            { key: "formulas", label: <Link to="/formulas">计算公式</Link> },
             { key: "settings", label: <Link to="/settings">设置</Link> },
           ]}
         />
@@ -41,6 +44,7 @@ export default function App() {
           <Route path="/missions/new" element={<MissionCreate />} />
           <Route path="/missions/:taskId" element={<MissionDetail />} />
           <Route path="/kb" element={<Knowledge />} />
+          <Route path="/formulas" element={<Formulas />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </Content>
