@@ -385,41 +385,48 @@ export default function MissionDetail() {
     },
     {
       title: "操作", width: 230,
-      render: (_, row) => (
-        <Space size={0}>
-          <Button
-            size="small" type="link"
-            disabled={!CONFIRMABLE.includes(row.status)}
-            onClick={() => openReview(row)}
-          >
-            评审
-          </Button>
-          <Button
-            size="small" type="link" danger
-            disabled={!CONFIRMABLE.includes(row.status)}
-            onClick={() => openReview(row, "reject")}
-          >
-            驳回
-          </Button>
-          {!row.id.startsWith("input.") && (
+      render: (_, row) => {
+        if (row.id.startsWith("input.")) {
+          return row.status === "draft"
+            ? <Text type="secondary">见上方待确认项</Text>
+            : <Text type="secondary">-</Text>;
+        }
+        return (
+          <Space size={0}>
             <Button
               size="small" type="link"
               disabled={!CONFIRMABLE.includes(row.status)}
-              onClick={() => openReview(row, "accept", row.value)}
+              onClick={() => openReview(row)}
             >
-              编辑
+              评审
             </Button>
-          )}
-          {PARAM_FORMULA[row.id] && (
             <Button
-              size="small" type="link"
-              onClick={() => navigate(`/formulas?focus=${encodeURIComponent(PARAM_FORMULA[row.id])}`)}
+              size="small" type="link" danger
+              disabled={!CONFIRMABLE.includes(row.status)}
+              onClick={() => openReview(row, "reject")}
             >
-              公式
+              驳回
             </Button>
-          )}
-        </Space>
-      ),
+            {!row.id.startsWith("input.") && (
+              <Button
+                size="small" type="link"
+                disabled={!CONFIRMABLE.includes(row.status)}
+                onClick={() => openReview(row, "accept", row.value)}
+              >
+                编辑
+              </Button>
+            )}
+            {PARAM_FORMULA[row.id] && (
+              <Button
+                size="small" type="link"
+                onClick={() => navigate(`/formulas?focus=${encodeURIComponent(PARAM_FORMULA[row.id])}`)}
+              >
+                公式
+              </Button>
+            )}
+          </Space>
+        );
+      },
     },
   ];
 
@@ -487,13 +494,30 @@ export default function MissionDetail() {
 
   const paramsTab = (
     <Space direction="vertical" style={{ width: "100%" }} size="middle">
-      {(draftInputs.length > 0 || openAssumptions.length > 0) && (
+      {(draftInputs.length > 0 || openAssumptions.length > 0 || needsReview > 0) && (
         <Card
-          size="small" title="待确认项（S4 设计输入门禁）"
-          extra={<Text type="secondary">
-            确认全部后任务自动恢复执行（评审人：{reviewer}）
-          </Text>}
+          size="small" title="待确认项（输入 / 校验门禁）"
+          extra={
+            <Space>
+              <Text type="secondary">确认全部后任务自动恢复执行（评审人：{reviewer}）</Text>
+              <Popconfirm
+                title="一键确认全部待处理项？"
+                description="包括草案输入、未确认假设与待评审参数（超限参数会记为人工豁免）"
+                okText="确认全部" cancelText="取消"
+                onConfirm={acceptAllReviews}
+              >
+                <Button type="primary" size="small" loading={acceptingAll}>
+                  一键确认全部
+                </Button>
+              </Popconfirm>
+            </Space>
+          }
         >
+          <Paragraph type="secondary" style={{ marginTop: 0 }}>
+            设计输入草案 = S4 生成、尚未确认的分系统输入；未确认假设 = 模型给出的经验取值/前提
+            （如压缩比、衰减率）。确认后才会进入 S5 计算；驳回会终止任务（REVIEW_REJECTED），
+            需要修正后重新创建或重跑。
+          </Paragraph>
           {draftInputs.length > 0 && (
             <>
               <Text strong>设计输入草案（{draftInputs.length} 组，draft）</Text>
@@ -504,6 +528,8 @@ export default function MissionDetail() {
                     actions={[
                       <Button key="accept" size="small" type="primary"
                         onClick={() => confirmDraft(item.id)}>确认</Button>,
+                      <Button key="edit" size="small"
+                        onClick={() => openReview(item)}>编辑 JSON</Button>,
                       <Button key="reject" size="small" danger
                         onClick={() => openReview(item, "reject")}>驳回</Button>,
                     ]}
@@ -514,7 +540,7 @@ export default function MissionDetail() {
                         <Tag color="gold">draft</Tag>
                         <Text>{item.name}</Text>
                       </Space>}
-                      description="S4 模型建议值；确认后登记为已确认假设并进入计算"
+                      description="S4 模型建议值；可先编辑 JSON 核对，确认后登记为已确认假设并进入计算"
                     />
                   </List.Item>
                 )}
@@ -523,8 +549,12 @@ export default function MissionDetail() {
           )}
           {openAssumptions.length > 0 && (
             <>
-                <Space size="small">
+                <Space size="small" direction="vertical">
                   <Text strong>未确认假设（{openAssumptions.length} 条，open）</Text>
+                  <Text type="secondary">
+                    这些是模型在 S4 给出的经验取值/前提，不是计算结果；确认后写入假设台账并作为设计依据，
+                    驳回会终止任务。若不确定，可先在任务 trace/参数中核对依据。
+                  </Text>
                 </Space>
               <List
                 size="small" dataSource={openAssumptions}
@@ -554,6 +584,12 @@ export default function MissionDetail() {
               />
             </>
           )}
+          {draftInputs.length === 0 && openAssumptions.length === 0 && needsReview > 0 && (
+            <Text type="secondary">
+              当前有 {needsReview} 个参数待评审（见下方参数表）；可直接用右上角「一键确认全部」，
+              或逐项评审/改值/驳回。
+            </Text>
+          )}
         </Card>
       )}
       <Space wrap>
@@ -582,17 +618,6 @@ export default function MissionDetail() {
         }}>
           重新校验
         </Button>
-        <Popconfirm
-          title="一键确认全部待处理项？"
-          description="包括草案输入、未确认假设与待评审参数（超限参数会记为人工豁免）"
-          okText="确认全部" cancelText="取消"
-          onConfirm={acceptAllReviews}
-        >
-          <Button type="primary" loading={acceptingAll}
-            disabled={!needsReview && openAssumptions.length === 0}>
-            一键确认全部
-          </Button>
-        </Popconfirm>
       </Space>
       {blocking.length > 0 && (
         <Alert
