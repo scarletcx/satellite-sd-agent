@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Alert, Button, Card, Input, InputNumber, Popconfirm, Select, Space, Switch,
+  Alert, Button, Card, Input, InputNumber, Popconfirm, Segmented, Select, Space, Switch,
   Tag, Typography, message,
 } from "antd";
 
 import { api, type ChatSettings, type LlmSettings, type ProviderSetting } from "../api/client";
+import { ACCENT_OPTIONS, THEME_OPTIONS, useTheme, type ThemeMode } from "../theme";
 
 const { Text, Paragraph } = Typography;
 
@@ -13,6 +14,7 @@ const ID_PATTERN = /^[a-z][a-z0-9_-]{1,31}$/;
 type EditableProvider = ProviderSetting & { api_key_input?: string };
 
 export default function Settings() {
+  const { mode, accent, resolved, setMode, setAccent } = useTheme();
   const [settings, setSettings] = useState<LlmSettings | null>(null);
   const [providers, setProviders] = useState<EditableProvider[]>([]);
   const [modelsById, setModelsById] = useState<Record<string, string[]>>({});
@@ -164,6 +166,45 @@ export default function Settings() {
 
   return (
     <Space direction="vertical" style={{ width: "100%" }} size="middle">
+      <Card
+        size="small"
+        title="外观主题"
+        extra={<Tag color={resolved === "dark" ? "geekblue" : "blue"}>
+          {resolved === "dark" ? "当前深色" : "当前浅色"} · 保存在本机
+        </Tag>}
+      >
+        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          <Space wrap size="large">
+            <Text>模式</Text>
+            <Segmented
+              value={mode}
+              options={THEME_OPTIONS.map((item) => ({ value: item.value, label: item.label }))}
+              onChange={(value) => setMode(value as ThemeMode)}
+            />
+          </Space>
+          <Space wrap size="middle">
+            <Text>主题色</Text>
+            {ACCENT_OPTIONS.map((item) => (
+              <Button
+                key={item.key}
+                size="small"
+                type={accent === item.key ? "primary" : "default"}
+                style={accent === item.key ? { background: item.color, borderColor: item.color } : {
+                  borderColor: item.color, color: item.color,
+                }}
+                onClick={() => setAccent(item.key)}
+              >
+                {item.label}
+              </Button>
+            ))}
+          </Space>
+          <Text type="secondary">
+            浅色 / 深色 / 跟随系统会影响 Ant Design 组件与聊天界面；主题色用于按钮、链接、用户消息气泡等强调色。
+            设置立即生效，无需保存。
+          </Text>
+        </Space>
+      </Card>
+
       <Card
         size="small"
         title="对话与上下文"

@@ -8,11 +8,13 @@ import MissionDetail from "./pages/MissionDetail";
 import MissionList from "./pages/MissionList";
 import Knowledge from "./pages/Knowledge";
 import Settings from "./pages/Settings";
+import { useTheme } from "./theme";
 
 const { Header, Content } = Layout;
 
 export default function App() {
   const location = useLocation();
+  const { resolved } = useTheme();
   const selected = location.pathname.startsWith("/kb") ? ["kb"]
     : location.pathname.startsWith("/settings") ? ["settings"]
       : location.pathname.startsWith("/formulas") ? ["formulas"]
@@ -20,7 +22,12 @@ export default function App() {
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Header style={{ display: "flex", alignItems: "center", gap: 24 }}>
+      <Header
+        style={{
+          display: "flex", alignItems: "center", gap: 24,
+          background: resolved === "dark" ? "#0b0f14" : "#001529",
+        }}
+      >
         <div style={{ color: "#fff", fontWeight: 600, whiteSpace: "nowrap" }}>AI 卫星总体设计助手</div>
         <Menu
           theme="dark"

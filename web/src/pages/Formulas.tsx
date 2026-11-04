@@ -174,7 +174,7 @@ export default function Formulas() {
               pagination={{ pageSize: 12 }}
               onRow={(row) => ({
                 onClick: () => selectFormula(row.id),
-                style: { cursor: "pointer", background: row.id === selectedId ? "#e6f4ff" : undefined },
+                style: { cursor: "pointer", background: row.id === selectedId ? "var(--app-active)" : undefined },
               })}
             />
           </Card>
